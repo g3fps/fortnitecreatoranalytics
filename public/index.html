@@ -32,6 +32,7 @@
       <span class="status-dot live" id="status-dot"></span>
       <span id="status-text">connecting…</span>
     </div>
+    <span class="pro-badge" id="pro-badge" style="display:none;">PRO</span>
     <button class="btn-ghost" id="auth-button">Sign in</button>
   </div>
 </header>
@@ -39,66 +40,87 @@
 <main>
     <!-- ===================== OVERVIEW ===================== -->
     <section class="view active" id="view-overview">
-      <div class="intro-banner" id="intro-banner">
-        <button class="intro-dismiss" id="intro-dismiss" aria-label="Dismiss">×</button>
-        <h2>See how your Fortnite Creative island really stacks up.</h2>
-        <p>
-          Epic's Creator Portal only shows you <strong>your own</strong> island's numbers. This dashboard tracks
-          engagement stats for every public Creative / UEFN island — so you can find your rank on the
-          <strong>Leaderboard</strong>, see who's <strong>trending</strong> up and down, and
-          <strong>compare</strong> yourself head-to-head against any rival. Look up your own island by code to
-          start tracking it.
-        </p>
-      </div>
-
-      <div class="topbar">
-        <h1>Overview</h1>
-        <span class="sub" id="overview-updated">—</span>
-      </div>
-
-      <div class="kpi-row" id="kpi-row">
-        <div class="tile">
-          <span class="tile-label">Islands tracked</span>
-          <span class="tile-value" id="kpi-islands">—</span>
-          <span class="tile-note">public Creative / UEFN islands</span>
-        </div>
-        <div class="tile">
-          <span class="tile-label">Active islands</span>
-          <span class="tile-value accent-sonar" id="kpi-active">—</span>
-          <span class="tile-note" id="kpi-active-note">currently showing player activity</span>
-        </div>
-        <div class="tile">
-          <span class="tile-label">Readings captured</span>
-          <span class="tile-value accent-gold" id="kpi-snapshots">—</span>
-          <span class="tile-note">history points, growing daily</span>
-        </div>
-        <div class="tile">
-          <span class="tile-label">Last updated</span>
-          <span class="tile-value" id="kpi-lastupdate" style="font-size:17px;">—</span>
-          <span class="tile-note" id="kpi-lastupdate-note">stats refresh about once a day</span>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>Snapshots collected over time</h2>
-        <p class="panel-sub">Cumulative count of readings this crawler has captured. Epic's API keeps none of this — every point here exists only because it was polled at the time.</p>
-        <div class="chart-box" id="growth-chart"></div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <div class="titles">
-            <h2>Top islands right now</h2>
-            <p class="panel-sub">By peak concurrent players, latest reading.</p>
+      <!-- Hero -->
+      <div class="hero">
+        <div class="hero-copy">
+          <div class="hero-eyebrow">Fortnite Creative &amp; UEFN analytics</div>
+          <h1 class="hero-title">Know exactly how your island stacks up.</h1>
+          <p class="hero-sub">
+            Epic only shows you <strong>your own</strong> numbers. Island Ledger tracks live engagement stats
+            for every public Creative / UEFN island — rank against the whole market, spot what's trending,
+            and watch your competitors. It's the data behind engagement payouts, made public.
+          </p>
+          <div class="hero-cta">
+            <button class="btn-primary" id="hero-lookup-cta">Look up my island →</button>
+            <button class="btn-ghost" id="hero-leaderboard-cta">Browse the leaderboard</button>
           </div>
-          <button class="btn-ghost" id="overview-see-all">Full leaderboard →</button>
+          <div class="hero-stats" id="hero-stats">
+            <div><span class="hero-stat-num" id="kpi-islands">—</span><span class="hero-stat-label">islands tracked</span></div>
+            <div><span class="hero-stat-num accent-sonar" id="kpi-active">—</span><span class="hero-stat-label">active now</span></div>
+            <div><span class="hero-stat-num accent-gold" id="kpi-snapshots">—</span><span class="hero-stat-label">readings captured</span></div>
+            <div><span class="hero-stat-num" id="kpi-lastupdate" style="font-size:20px;">—</span><span class="hero-stat-label">last updated</span></div>
+          </div>
+          <div class="sub" id="overview-updated" style="margin-top:6px;"></div>
         </div>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>#</th><th>Island</th><th>Peak CCU</th></tr></thead>
-            <tbody id="overview-board-body"></tbody>
-          </table>
+      </div>
+
+      <!-- Live proof: top islands + trending side by side -->
+      <div class="home-grid">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="titles">
+              <h2>🔥 Top islands right now</h2>
+              <p class="panel-sub">Highest peak concurrent players, latest reading.</p>
+            </div>
+            <button class="btn-ghost" id="overview-see-all">Full leaderboard →</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>#</th><th>Island</th><th>Peak CCU</th></tr></thead>
+              <tbody id="overview-board-body"></tbody>
+            </table>
+          </div>
         </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="titles">
+              <h2>📈 Biggest gainers today</h2>
+              <p class="panel-sub">Fastest-rising islands since their last reading.</p>
+            </div>
+            <button class="btn-ghost" id="overview-see-movers">All movers →</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Island</th><th>Peak CCU</th><th>Change</th></tr></thead>
+              <tbody id="overview-movers-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- What you can do -->
+      <div class="feature-cards">
+        <button class="feature-card" data-go="leaderboard">
+          <div class="feature-ico">🏆</div>
+          <div class="feature-title">Leaderboards</div>
+          <div class="feature-desc">Rank every island by CCU, players, playtime, retention and more — filter by genre or creator.</div>
+        </button>
+        <button class="feature-card" data-go="movers">
+          <div class="feature-ico">📊</div>
+          <div class="feature-title">Movers</div>
+          <div class="feature-desc">See what's blowing up and what's fading — trends Epic's API can't show, because it keeps no history.</div>
+        </button>
+        <button class="feature-card" data-go="compare">
+          <div class="feature-ico">⚔️</div>
+          <div class="feature-title">Compare <span class="pro-tag">PRO</span></div>
+          <div class="feature-desc">Put your island head-to-head against any rival, metric by metric.</div>
+        </button>
+        <button class="feature-card" data-go="explore">
+          <div class="feature-ico">🔎</div>
+          <div class="feature-title">Track your island</div>
+          <div class="feature-desc">Look up your own island by code and save it — build the history Epic doesn't keep.</div>
+        </button>
       </div>
     </section>
 
@@ -214,6 +236,9 @@
         <span class="sub">Pick up to 3 to compare side by side — built for "how do I stack up against them?"</span>
       </div>
 
+      <div class="panel upgrade-gate" id="compare-gate" style="display:none;"></div>
+
+      <div id="compare-search-section">
       <div class="panel">
         <h2>Add an island</h2>
         <p class="panel-sub">Search what this crawler has already tracked, by title, code, or creator.</p>
@@ -221,6 +246,7 @@
           <input type="text" id="compare-search-input" placeholder="Search islands to add…" style="flex:1; min-width:220px;">
         </div>
         <div class="compare-results" id="compare-search-results"></div>
+      </div>
       </div>
 
       <div class="panel" id="compare-panel" style="display:none;">
@@ -443,6 +469,24 @@
     <span id="auth-toggle-text">Don't have an account?</span>
     <button class="link-btn" id="auth-toggle-btn">Create one</button>
   </div>
+</div>
+
+<!-- Upgrade modal (Stripe checkout wired here once keys are configured) -->
+<div class="modal-backdrop" id="upgrade-backdrop"></div>
+<div class="modal" id="upgrade-modal" role="dialog" aria-modal="true" aria-labelledby="upgrade-title">
+  <div class="modal-head">
+    <h3 id="upgrade-title">Upgrade to Island Ledger Pro</h3>
+    <button class="close-btn" id="upgrade-close">close</button>
+  </div>
+  <ul class="upgrade-perks">
+    <li>Head-to-head <strong>Compare</strong> — your islands vs. any rival</li>
+    <li>Track <strong>unlimited</strong> islands (free tier: 3)</li>
+    <li><strong>Full history</strong> on every chart (free tier: last 7 days)</li>
+    <li><strong>CSV export</strong> of any leaderboard or list</li>
+    <li>AI-generated insights on your tracked islands</li>
+  </ul>
+  <button class="tab-btn active" id="upgrade-checkout" style="width:100%;">Continue to checkout</button>
+  <div class="auth-msg" id="upgrade-msg"></div>
 </div>
 
 <script src="/config.js"></script>

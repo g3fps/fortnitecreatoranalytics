@@ -91,6 +91,18 @@ function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+// CSV export is a Pro feature. Non-Pro clicks open the upgrade modal instead
+// of downloading. (can/openUpgradeModal are defined in the auth section
+// below; this only runs on click, well after load.)
+function gatedExport(filename, rows) {
+  if (!can('csvExport')) {
+    if (typeof currentUser !== 'undefined' && !currentUser) openAuthModal();
+    else openUpgradeModal();
+    return;
+  }
+  downloadCsv(filename, rows);
+}
+
 // ---------------------------------------------------------------- nav / views
 
 const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'watchlist', 'data'];
@@ -99,7 +111,7 @@ const loaders = {
   leaderboard: loadLeaderboard,
   movers: loadMovers,
   creators: loadCreators,
-  compare: () => {},
+  compare: loadCompare,
   browse: loadBrowse,
   explore: () => {},
   watchlist: loadWatchlist,
@@ -133,6 +145,12 @@ window.addEventListener('hashchange', () => {
 });
 
 $('overview-see-all').addEventListener('click', () => switchView('leaderboard'));
+$('overview-see-movers').addEventListener('click', () => switchView('movers'));
+$('hero-lookup-cta').addEventListener('click', () => switchView('explore'));
+$('hero-leaderboard-cta').addEventListener('click', () => switchView('leaderboard'));
+document.querySelectorAll('.feature-card').forEach((card) => {
+  card.addEventListener('click', () => switchView(card.dataset.go));
+});
 
 // ---------------------------------------------------------------- top bar status
 
@@ -354,10 +372,10 @@ function buildSparkline(snapshots, metricKey) {
 
 async function loadOverview() {
   try {
-    const [stats, timeline, board] = await Promise.all([
+    const [stats, board, movers] = await Promise.all([
       fetchJson('/api/stats'),
-      fetchJson('/api/timeline'),
-      fetchJson('/api/leaderboard?metric=peakCCU&limit=5'),
+      fetchJson('/api/leaderboard?metric=peakCCU&limit=8'),
+      fetchJson('/api/movers?metric=peakCCU&direction=up&limit=8'),
     ]);
 
     $('kpi-islands').textContent = stats.islandsTracked.toLocaleString();
@@ -366,14 +384,49 @@ async function loadOverview() {
 
     const last = stats.crawlState?.lastCrawlFinishedAt;
     $('kpi-lastupdate').textContent = last ? fmtRelativeTime(last) : '—';
-    $('overview-updated').textContent = last ? `stats updated ${fmtRelativeTime(last)}` : '';
-
-    clearChildren($('growth-chart'));
-    $('growth-chart').appendChild(buildGrowthChart(timeline.days));
+    $('overview-updated').textContent = last ? `Stats last updated ${fmtRelativeTime(last)}` : '';
 
     renderRankedTable($('overview-board-body'), board.rows, 'peakCCU');
+    renderOverviewMovers(movers.rows || []);
   } catch (err) {
     console.error('loadOverview failed', err);
+  }
+}
+
+// Compact gainers table for the homepage (island · current CCU · +delta).
+function renderOverviewMovers(rows) {
+  const tbody = $('overview-movers-body');
+  clearChildren(tbody);
+  if (!rows.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 3;
+    td.className = 'empty-state';
+    td.style.padding = '18px';
+    td.textContent = 'Not enough history yet — gainers appear once islands have 2+ readings.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    tr.className = 'clickable';
+    tr.addEventListener('click', () => showDetail(row.code));
+    tr.appendChild(buildIslandCell(row));
+
+    const tdCcu = document.createElement('td');
+    tdCcu.className = 'mono-cell';
+    tdCcu.textContent = fmtNumber(row.latest?.peakCCU);
+    tr.appendChild(tdCcu);
+
+    const tdDelta = document.createElement('td');
+    const span = document.createElement('span');
+    span.className = row.delta >= 0 ? 'delta-up' : 'delta-down';
+    span.textContent = `${row.delta > 0 ? '+' : ''}${fmtNumber(row.delta)}`;
+    tdDelta.appendChild(span);
+    tr.appendChild(tdDelta);
+
+    tbody.appendChild(tr);
   }
 }
 
@@ -449,7 +502,7 @@ async function loadLeaderboard() {
 }
 
 $('leaderboard-export').addEventListener('click', () => {
-  downloadCsv(`leaderboard-${currentMetric}.csv`, flattenRowsForCsv(lastLeaderboardRows, currentMetric));
+  gatedExport(`leaderboard-${currentMetric}.csv`, flattenRowsForCsv(lastLeaderboardRows, currentMetric));
 });
 
 // ---------------------------------------------------------------- movers
@@ -723,6 +776,54 @@ function buildCompareRow(label, cells) {
   return tr;
 }
 
+// Compare is a Pro feature. Non-Pro users see an upgrade gate instead of the
+// tool; the gate is enforced here (view load) and the search/render below
+// are simply never reached for them.
+function loadCompare() {
+  const gate = $('compare-gate');
+  const search = $('compare-search-section');
+  const panel = $('compare-panel');
+  const empty = $('compare-empty');
+  if (!can('compare')) {
+    gate.style.display = 'block';
+    search.style.display = 'none';
+    panel.style.display = 'none';
+    empty.style.display = 'none';
+    renderUpgradeGate(gate, {
+      title: 'Compare is a Pro feature',
+      body: 'Put any islands head-to-head — your maps against your rivals, metric by metric. Upgrade to Pro to unlock side-by-side comparison.',
+    });
+    return;
+  }
+  gate.style.display = 'none';
+  search.style.display = '';
+  renderCompare();
+}
+
+// Reusable "this is Pro" panel with an upgrade button. Used by every gated
+// surface so the upsell is consistent.
+function renderUpgradeGate(container, { title, body }) {
+  clearChildren(container);
+  const h = document.createElement('h2');
+  h.textContent = title;
+  const p = document.createElement('p');
+  p.className = 'panel-sub';
+  p.textContent = body;
+  const btn = document.createElement('button');
+  btn.className = 'tab-btn active';
+  btn.textContent = currentUser ? 'Upgrade to Pro' : 'Sign in to upgrade';
+  btn.addEventListener('click', () => {
+    if (!currentUser) {
+      openAuthModal();
+    } else {
+      openUpgradeModal();
+    }
+  });
+  container.appendChild(h);
+  container.appendChild(p);
+  container.appendChild(btn);
+}
+
 async function renderCompare() {
   const panel = $('compare-panel');
   const empty = $('compare-empty');
@@ -953,7 +1054,7 @@ $('browse-next').addEventListener('click', () => {
   loadBrowse();
 });
 $('browse-export').addEventListener('click', () => {
-  downloadCsv('browse-page.csv', lastBrowseRows.map((r) => ({
+  gatedExport('browse-page.csv', lastBrowseRows.map((r) => ({
     code: r.code,
     title: r.title || '',
     creatorCode: r.creatorCode || '',
@@ -1352,38 +1453,35 @@ async function showDetail(code) {
   }
 }
 
-// ---------------------------------------------------------------- intro banner
-
-(function initIntroBanner() {
-  const DISMISS_KEY = 'introBannerDismissed';
-  const banner = $('intro-banner');
-  if (!banner) return;
-  try {
-    if (localStorage.getItem(DISMISS_KEY) === '1') banner.style.display = 'none';
-  } catch (err) {
-    // localStorage can throw in locked-down/private-browsing contexts -
-    // worst case the banner just doesn't remember being dismissed.
-  }
-  $('intro-dismiss').addEventListener('click', () => {
-    banner.style.display = 'none';
-    try {
-      localStorage.setItem(DISMISS_KEY, '1');
-    } catch (err) {
-      // Non-fatal - see above.
-    }
-  });
-})();
-
-// ---------------------------------------------------------------- auth + watchlist
+// ---------------------------------------------------------------- auth + plan + watchlist
 
 // Optional feature layer: the whole dashboard works logged-out (all public
-// data). Signing in only unlocks the personal watchlist ("My Islands"),
-// stored per-user in Supabase and protected by row-level security - the
-// browser talks to Supabase directly with the public anon key; no
-// credentials or user data ever pass through this app's own API.
+// data). Signing in adds personal features; some are gated behind Pro.
+// Everything about the browser talks to Supabase directly with the public
+// anon key; no credentials/user data pass through this app's own API. The
+// is_pro flag lives in user_profiles and can only be flipped server-side
+// (Stripe webhook via service_role) - the client only ever reads it.
 let sbClient = null;
 let currentUser = null;
+let isPro = false;
 let watchlistCodes = new Set(); // codes the signed-in user is tracking
+
+// Single source of truth for the free/Pro split. Changing a limit here
+// changes it everywhere it's enforced.
+const PLAN_LIMITS = {
+  free: { watchlistMax: 3, historyDays: 7, compare: false, csvExport: false },
+  pro: { watchlistMax: Infinity, historyDays: Infinity, compare: true, csvExport: true },
+};
+
+function planLimits() {
+  return isPro ? PLAN_LIMITS.pro : PLAN_LIMITS.free;
+}
+
+// A feature is allowed if the current plan grants it. Logged-out users get
+// the free limits (so e.g. Compare prompts them to sign in / upgrade).
+function can(feature) {
+  return Boolean(planLimits()[feature]);
+}
 
 function supabaseReady() {
   return Boolean(sbClient);
@@ -1409,13 +1507,15 @@ async function applyAuthState(session) {
   });
   if (currentUser) {
     btn.textContent = 'Sign out';
-    await refreshWatchlistCodes();
+    await Promise.all([refreshWatchlistCodes(), refreshPlan()]);
   } else {
     btn.textContent = 'Sign in';
+    isPro = false;
     watchlistCodes = new Set();
     // If they were on My Islands when they signed out, bounce to Overview.
     if ($('view-watchlist').classList.contains('active')) switchView('overview');
   }
+  applyPlanUi();
   // Reflect track/untrack state anywhere it's currently shown.
   updateTrackButtons();
 }
@@ -1430,9 +1530,44 @@ async function refreshWatchlistCodes() {
   watchlistCodes = new Set((data || []).map((r) => r.code));
 }
 
+async function refreshPlan() {
+  if (!currentUser) {
+    isPro = false;
+    return;
+  }
+  const { data, error } = await sbClient.from('user_profiles').select('is_pro').eq('user_id', currentUser.id).maybeSingle();
+  if (error) {
+    console.error('plan load failed', error.message);
+    isPro = false;
+    return;
+  }
+  isPro = Boolean(data?.is_pro);
+}
+
+// Reflect plan state in the UI: a Pro badge on the auth button, and the
+// Compare nav item gets a lock hint for non-Pro users (it still navigates,
+// but the view shows an upgrade gate).
+function applyPlanUi() {
+  const badge = $('pro-badge');
+  if (badge) badge.style.display = isPro ? '' : 'none';
+  const compareNav = document.querySelector('.nav-item[data-view="compare"]');
+  if (compareNav) {
+    compareNav.classList.toggle('locked', !can('compare'));
+  }
+}
+
 async function trackIsland(code) {
   if (!currentUser) {
     openAuthModal();
+    return false;
+  }
+  // Free-tier watchlist cap. Already-tracked codes don't count against it
+  // (untracking then retracking is fine); only a genuinely new add is blocked.
+  const max = planLimits().watchlistMax;
+  if (!watchlistCodes.has(code) && watchlistCodes.size >= max) {
+    openUpgradeModal();
+    $('upgrade-msg').className = 'auth-msg';
+    $('upgrade-msg').textContent = `Free accounts can track up to ${max} islands. Upgrade to Pro for unlimited.`;
     return false;
   }
   const { error } = await sbClient.from('user_watchlist').insert({ user_id: currentUser.id, code });
@@ -1479,6 +1614,37 @@ function openAuthModal() {
 function closeAuthModal() {
   $('auth-backdrop').classList.remove('open');
   $('auth-modal').classList.remove('open');
+}
+
+// ---- upgrade modal ----
+// Stripe Checkout gets wired into the checkout button once the account + key
+// exist (see README). For now it explains the plan and shows a clear
+// "not yet available" state rather than a fake payment flow.
+function openUpgradeModal() {
+  $('upgrade-msg').textContent = '';
+  $('upgrade-msg').className = 'auth-msg';
+  $('upgrade-backdrop').classList.add('open');
+  $('upgrade-modal').classList.add('open');
+}
+function closeUpgradeModal() {
+  $('upgrade-backdrop').classList.remove('open');
+  $('upgrade-modal').classList.remove('open');
+}
+function wireUpgradeUi() {
+  $('upgrade-close').addEventListener('click', closeUpgradeModal);
+  $('upgrade-backdrop').addEventListener('click', closeUpgradeModal);
+  $('upgrade-checkout').addEventListener('click', async () => {
+    const msg = $('upgrade-msg');
+    // Placeholder until Stripe is connected. When STRIPE is wired, this
+    // becomes a fetch to a /api/create-checkout-session endpoint that returns
+    // a Checkout URL to redirect to.
+    if (!window.STRIPE_ENABLED) {
+      msg.className = 'auth-msg';
+      msg.textContent = 'Checkout isn\'t live yet — Pro is coming very soon.';
+      return;
+    }
+    // (Wired later.)
+  });
 }
 function setAuthMode(mode) {
   authMode = mode;
@@ -1619,7 +1785,7 @@ async function loadWatchlist() {
 }
 
 $('watchlist-export').addEventListener('click', () => {
-  downloadCsv('my-islands.csv', lastWatchlistRows.map((r) => ({
+  gatedExport('my-islands.csv', lastWatchlistRows.map((r) => ({
     code: r.code,
     title: r.title || '',
     creatorCode: r.creatorCode || '',
@@ -1632,6 +1798,7 @@ $('watchlist-export').addEventListener('click', () => {
 
 initSupabase();
 wireAuthUi();
+wireUpgradeUi();
 refreshStatus();
 loadTagCloud();
 // Honor a deep-link hash on load (e.g. someone shared /#leaderboard), else

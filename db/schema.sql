@@ -122,6 +122,53 @@ grant select, insert, delete on user_watchlist to authenticated;
 -- grant it too so admin/debug scripts can inspect watchlists if needed.
 grant all on user_watchlist to service_role;
 
+-- User profiles: one row per user, holding the plan flag (is_pro) and (later)
+-- the Stripe customer/subscription ids. Critically, is_pro is NOT
+-- user-writable - a user can read their own profile, but only the
+-- service_role (used by the Stripe webhook) may set is_pro. Otherwise anyone
+-- could grant themselves Pro from the browser.
+create table if not exists user_profiles (
+  user_id                uuid primary key references auth.users (id) on delete cascade,
+  is_pro                 boolean not null default false,
+  stripe_customer_id     text,
+  stripe_subscription_id text,
+  plan_updated_at        timestamptz,
+  created_at             timestamptz not null default now()
+);
+
+alter table user_profiles enable row level security;
+
+-- Read-only for the owner. No insert/update/delete policies for
+-- authenticated on purpose: rows are created by the signup trigger below
+-- (which runs as the definer), and is_pro is flipped only by the
+-- service_role, which bypasses RLS entirely.
+drop policy if exists "own profile select" on user_profiles;
+create policy "own profile select" on user_profiles for select using (auth.uid() = user_id);
+
+grant select on user_profiles to authenticated;
+grant all on user_profiles to service_role;
+
+-- Auto-create a profile row whenever a new auth user is created, so every
+-- signed-in user always has exactly one profile (defaulting to free).
+-- security definer lets it insert despite RLS.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.user_profiles (user_id) values (new.id)
+  on conflict (user_id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
 -- Row Level Security: this project has no end-user auth, and all writes come
 -- from the crawler using the service_role key (which bypasses RLS entirely).
 -- Enable RLS with a read-only policy for the anon/public key so the tables
