@@ -35,14 +35,56 @@ function parseFilterParams(query) {
   };
 }
 
+// Fixed-window in-memory rate limiter, keyed by client IP. No dependency and
+// no shared store on purpose: on Vercel each serverless instance keeps its
+// own window, so the effective limit is per-instance - fine as an
+// abuse/cost backstop (the thing we're protecting against is one client
+// hammering an endpoint), not a precise global quota. The expensive endpoint
+// is /api/lookup, which makes live calls to Epic's API and writes to the DB;
+// read-only endpoints get a looser limit.
+function rateLimiter({ windowMs, max, message }) {
+  const hits = new Map(); // ip -> { count, resetAt }
+  return (req, res, next) => {
+    const now = Date.now();
+    // Vercel sets x-forwarded-for; fall back to the socket address locally.
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+    let entry = hits.get(ip);
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 0, resetAt: now + windowMs };
+      hits.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > max) {
+      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      res.status(429).json({ error: message || 'Too many requests, please slow down.', retryAfter });
+      return;
+    }
+    // Opportunistic cleanup so the Map doesn't grow unbounded across many IPs
+    // over the life of a long-running local process.
+    if (hits.size > 5000) {
+      for (const [key, val] of hits) {
+        if (now >= val.resetAt) hits.delete(key);
+      }
+    }
+    next();
+  };
+}
+
 function createServer(store, options = {}) {
   const { crawlIntervalMs = null, getCrawlProgress = () => ({ inProgress: false, current: null }) } = options;
   const app = express();
+  // Behind Vercel's proxy - trust it so req.ip / x-forwarded-for are correct.
+  app.set('trust proxy', true);
 
   app.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
     next();
   });
+
+  // General read-only API limit: generous, just a backstop against scraping
+  // the whole thing in a tight loop.
+  app.use('/api/', rateLimiter({ windowMs: 60 * 1000, max: 120, message: 'Too many requests — please slow down.' }));
 
   app.get('/api/health', (req, res) => {
     res.json({ ok: true, uptimeSeconds: Math.round(process.uptime()) });
@@ -159,6 +201,11 @@ function createServer(store, options = {}) {
   // reach any one specific island, given the catalog is 180k+ islands).
   app.get(
     '/api/lookup/:code',
+    // Tighter than the general limit: each call makes up to two live requests
+    // to Epic's API and writes to the DB. 10/min per IP is plenty for a
+    // creator checking a handful of codes, but stops someone from turning
+    // this endpoint into a free proxy that hammers Epic on our behalf.
+    rateLimiter({ windowMs: 60 * 1000, max: 10, message: 'Too many island lookups — please wait a minute before looking up more.' }),
     ah(async (req, res) => {
       const code = (req.params.code || '').trim();
       if (!code || code.length > 64) {

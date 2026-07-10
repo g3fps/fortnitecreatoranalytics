@@ -23,7 +23,7 @@
     <button class="nav-item" data-view="compare">Compare</button>
     <button class="nav-item" data-view="browse">Browse<span class="nav-count" id="nav-browse-count"></span></button>
     <button class="nav-item" data-view="explore">Explore</button>
-    <button class="nav-item" data-view="health">Crawl Health</button>
+    <button class="nav-item" data-view="data">About Data</button>
   </nav>
 
   <div class="crawl-status" id="crawl-status">
@@ -37,13 +37,13 @@
     <section class="view active" id="view-overview">
       <div class="intro-banner" id="intro-banner">
         <button class="intro-dismiss" id="intro-dismiss" aria-label="Dismiss">×</button>
-        <h2>Epic exposes engagement metrics for every public Creative/UEFN island — but keeps no history of its own.</h2>
+        <h2>See how your Fortnite Creative island really stacks up.</h2>
         <p>
-          Creators get paid real money based on these exact numbers (engagement payouts, Item Shop-linked playtime), but
-          Epic's Creator Portal only shows <strong>your own</strong> island. This crawler polls Epic's public API daily and
-          keeps everything it sees — so you can watch <strong>Leaderboard</strong> rank by any metric, <strong>Movers</strong>
-          show what's trending, and <strong>Creators</strong> compare portfolios across the whole market, not just yours.
-          Every reading here exists only because it was captured at the time — there's no way to get it back otherwise.
+          Epic's Creator Portal only shows you <strong>your own</strong> island's numbers. This dashboard tracks
+          engagement stats for every public Creative / UEFN island — so you can find your rank on the
+          <strong>Leaderboard</strong>, see who's <strong>trending</strong> up and down, and
+          <strong>compare</strong> yourself head-to-head against any rival. Look up your own island by code to
+          start tracking it.
         </p>
       </div>
 
@@ -54,24 +54,24 @@
 
       <div class="kpi-row" id="kpi-row">
         <div class="tile">
-          <span class="tile-label">Islands in catalog</span>
+          <span class="tile-label">Islands tracked</span>
           <span class="tile-value" id="kpi-islands">—</span>
-          <span class="tile-note">discovered via catalog crawl</span>
+          <span class="tile-note">public Creative / UEFN islands</span>
         </div>
         <div class="tile">
-          <span class="tile-label">Catalog checked</span>
-          <span class="tile-value accent-sonar" id="kpi-checked">—</span>
-          <span class="tile-note" id="kpi-checked-note">% of catalog polled at least once</span>
+          <span class="tile-label">Active islands</span>
+          <span class="tile-value accent-sonar" id="kpi-active">—</span>
+          <span class="tile-note" id="kpi-active-note">currently showing player activity</span>
         </div>
         <div class="tile">
-          <span class="tile-label">Signal rate</span>
-          <span class="tile-value accent-gold" id="kpi-signal">—</span>
-          <span class="tile-note">of islands checked, % showing live traffic</span>
+          <span class="tile-label">Readings captured</span>
+          <span class="tile-value accent-gold" id="kpi-snapshots">—</span>
+          <span class="tile-note">history points, growing daily</span>
         </div>
         <div class="tile">
-          <span class="tile-label">Crawler status</span>
-          <span class="tile-value" id="kpi-lastcrawl" style="font-size:17px;">—</span>
-          <span class="tile-note" id="kpi-lastcrawl-note">—</span>
+          <span class="tile-label">Last updated</span>
+          <span class="tile-value" id="kpi-lastupdate" style="font-size:17px;">—</span>
+          <span class="tile-note" id="kpi-lastupdate-note">stats refresh about once a day</span>
         </div>
       </div>
 
@@ -321,53 +321,53 @@
       </div>
     </section>
 
-    <!-- ===================== CRAWL HEALTH ===================== -->
-    <section class="view" id="view-health">
+    <!-- ===================== DATA / ABOUT ===================== -->
+    <section class="view" id="view-data">
       <div class="topbar">
-        <h1>Crawl Health</h1>
-        <span class="sub" id="health-updated">—</span>
+        <h1>About the Data</h1>
+        <span class="sub" id="data-updated">—</span>
       </div>
 
       <div class="kpi-row">
         <div class="tile">
-          <span class="tile-label">Catalog cursor</span>
-          <span class="tile-value mono-cell" id="health-cursor" style="font-size:13px;">—</span>
-          <span class="tile-note">position in Epic's island catalog</span>
+          <span class="tile-label">Islands tracked</span>
+          <span class="tile-value" id="data-tracked">—</span>
+          <span class="tile-note">public Creative / UEFN islands</span>
         </div>
         <div class="tile">
-          <span class="tile-label">Last cycle duration</span>
-          <span class="tile-value" id="health-duration">—</span>
-          <span class="tile-note">catalog scan + metrics polling</span>
+          <span class="tile-label">Islands with live stats</span>
+          <span class="tile-value accent-sonar" id="data-withdata">—</span>
+          <span class="tile-note">currently showing player activity</span>
         </div>
         <div class="tile">
-          <span class="tile-label">Last cycle errors</span>
-          <span class="tile-value" id="health-errors">—</span>
-          <span class="tile-note">network / API failures, auto-retried</span>
+          <span class="tile-label">Readings captured</span>
+          <span class="tile-value accent-gold" id="data-snapshots">—</span>
+          <span class="tile-note">history points collected over time</span>
         </div>
         <div class="tile">
-          <span class="tile-label">Current cycle</span>
-          <span class="tile-value accent-sonar" id="health-progress" style="font-size:19px;">—</span>
-          <span class="tile-note" id="health-progress-note">one cycle runs per day</span>
+          <span class="tile-label">Last updated</span>
+          <span class="tile-value" id="data-lastupdate" style="font-size:17px;">—</span>
+          <span class="tile-note">stats refresh about once a day</span>
         </div>
       </div>
 
       <div class="panel">
-        <h2>Recent cycles</h2>
-        <p class="panel-sub">Most recent first. One cycle runs roughly once a day (Epic's metrics only update that often anyway). Each cycle discovers new islands via catalog pagination, then polls by priority: islands that have shown real traffic before get rechecked every cycle, never-polled islands get a steady share of what's left, and islands that have been checked repeatedly with zero traffic only get rechecked occasionally.</p>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr><th>Started</th><th>Reason</th><th>New islands</th><th>Polled</th><th>New snapshots</th><th>Not found</th><th>Errors</th></tr>
-            </thead>
-            <tbody id="health-body"></tbody>
-          </table>
-        </div>
-        <div class="empty-state" id="health-empty" style="display:none;">No cycles logged yet.</div>
+        <h2>Where these numbers come from</h2>
+        <p class="panel-sub" style="max-width:74ch;">
+          Every stat here is pulled from Epic's own public Ecosystem API — the same engagement metrics that
+          feed Creative/UEFN engagement payouts. Epic's API only ever reports an island's <em>current</em>
+          reading, with no history, so this site captures a reading for each island regularly and keeps it.
+          That's why the trend lines and Movers view exist here and nowhere else: the history only exists
+          because it was recorded as it happened. Stats update about once a day (which is as often as Epic's
+          underlying numbers change). Not affiliated with or endorsed by Epic Games.
+        </p>
       </div>
     </section>
 
     <footer style="border-top:1px solid var(--line); padding-top:16px; margin-top:8px; font-size:11.5px; color:var(--muted); line-height:1.6;">
-      Built on Epic's public <code>ecosystem/v1</code> API — no data Epic doesn't already expose publicly. History is only what this crawler has captured itself: Epic's API keeps none of it.
+      Island Ledger tracks public engagement stats for Fortnite Creative &amp; UEFN islands, built on Epic's public
+      Ecosystem API. Not affiliated with or endorsed by Epic Games. Historical trends are tracked over time —
+      Epic's own API provides only a current snapshot.
     </footer>
 </main>
 

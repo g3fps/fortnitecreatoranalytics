@@ -93,7 +93,7 @@ function downloadCsv(filename, rows) {
 
 // ---------------------------------------------------------------- nav / views
 
-const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'health'];
+const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'data'];
 const loaders = {
   overview: loadOverview,
   leaderboard: loadLeaderboard,
@@ -102,7 +102,7 @@ const loaders = {
   compare: () => {},
   browse: loadBrowse,
   explore: () => {},
-  health: loadHealth,
+  data: loadDataView,
 };
 
 function switchView(name, { updateHash = true } = {}) {
@@ -360,25 +360,12 @@ async function loadOverview() {
     ]);
 
     $('kpi-islands').textContent = stats.islandsTracked.toLocaleString();
+    $('kpi-active').textContent = stats.islandsWithData.toLocaleString();
+    $('kpi-snapshots').textContent = stats.snapshotCount.toLocaleString();
 
-    const checkedPct = stats.islandsTracked > 0 ? (stats.islandsPolled / stats.islandsTracked) * 100 : 0;
-    $('kpi-checked').textContent = `${checkedPct < 0.1 && checkedPct > 0 ? checkedPct.toFixed(2) : checkedPct.toFixed(1)}%`;
-    $('kpi-checked-note').textContent = `${stats.islandsPolled.toLocaleString()} of ${stats.islandsTracked.toLocaleString()} polled at least once`;
-
-    const signalPct = stats.islandsPolled > 0 ? (stats.islandsWithData / stats.islandsPolled) * 100 : 0;
-    $('kpi-signal').textContent = `${signalPct.toFixed(1)}%`;
-
-    const progress = stats.crawlProgress || { inProgress: false, current: null };
-    if (progress.inProgress && progress.current) {
-      $('kpi-lastcrawl').textContent = 'Crawling';
-      const polled = progress.current.metricsPolled || 0;
-      const total = progress.current.totalCandidates;
-      $('kpi-lastcrawl-note').textContent = total ? `${polled.toLocaleString()} / ${total.toLocaleString()} polled this cycle` : 'discovering catalog…';
-    } else {
-      $('kpi-lastcrawl').textContent = 'Idle';
-      $('kpi-lastcrawl-note').textContent = `last cycle finished ${fmtRelativeTime(stats.crawlState?.lastCrawlFinishedAt)}`;
-    }
-    $('overview-updated').textContent = `updated ${fmtRelativeTime(new Date().toISOString())}`;
+    const last = stats.crawlState?.lastCrawlFinishedAt;
+    $('kpi-lastupdate').textContent = last ? fmtRelativeTime(last) : '—';
+    $('overview-updated').textContent = last ? `stats updated ${fmtRelativeTime(last)}` : '';
 
     clearChildren($('growth-chart'));
     $('growth-chart').appendChild(buildGrowthChart(timeline.days));
@@ -1198,80 +1185,19 @@ async function runSearch(query) {
   }
 }
 
-// ---------------------------------------------------------------- crawl health
+// ---------------------------------------------------------------- about the data
 
-async function loadHealth() {
+async function loadDataView() {
   try {
-    const [stats, log] = await Promise.all([fetchJson('/api/stats'), fetchJson('/api/crawl-log?limit=20')]);
-
-    $('health-updated').textContent = `updated ${fmtRelativeTime(new Date().toISOString())}`;
-    const cursor = stats.crawlState?.cursor;
-    $('health-cursor').textContent = cursor ? `${cursor.slice(0, 14)}…` : '(wrapped to start)';
-
-    const progress = stats.crawlProgress || { inProgress: false, current: null };
-    if (progress.inProgress && progress.current) {
-      const polled = progress.current.metricsPolled || 0;
-      const total = progress.current.totalCandidates;
-      $('health-progress').textContent = total ? `${polled.toLocaleString()} / ${total.toLocaleString()}` : 'discovering…';
-    } else {
-      $('health-progress').textContent = 'idle';
-    }
-
-    const cycles = log.cycles || [];
-    const latest = cycles[0];
-    $('health-duration').textContent = latest ? fmtDuration(latest.durationMs) : '—';
-    const errEl = $('health-errors');
-    errEl.textContent = latest ? String(latest.errorCount ?? 0) : '—';
-    errEl.classList.toggle('accent-bad', !!latest && latest.errorCount > 0);
-
-    const tbody = $('health-body');
-    clearChildren(tbody);
-    $('health-empty').style.display = cycles.length ? 'none' : 'block';
-
-    for (const cycle of cycles) {
-      const tr = document.createElement('tr');
-
-      const tdStart = document.createElement('td');
-      tdStart.className = 'mono-cell';
-      tdStart.textContent = fmtRelativeTime(cycle.startedAt);
-      tr.appendChild(tdStart);
-
-      const tdReason = document.createElement('td');
-      tdReason.textContent = cycle.reason || '—';
-      tr.appendChild(tdReason);
-
-      const tdNew = document.createElement('td');
-      tdNew.className = 'mono-cell';
-      tdNew.textContent = fmtNumber(cycle.newIslandsDiscovered);
-      tr.appendChild(tdNew);
-
-      const tdPolled = document.createElement('td');
-      tdPolled.className = 'mono-cell';
-      tdPolled.textContent = fmtNumber(cycle.metricsPolled);
-      tr.appendChild(tdPolled);
-
-      const tdWritten = document.createElement('td');
-      tdWritten.className = 'mono-cell';
-      tdWritten.textContent = fmtNumber(cycle.metricsWritten);
-      tr.appendChild(tdWritten);
-
-      const tdNotFound = document.createElement('td');
-      tdNotFound.className = 'mono-cell';
-      tdNotFound.textContent = fmtNumber(cycle.metricsNotFound);
-      tr.appendChild(tdNotFound);
-
-      const tdErrors = document.createElement('td');
-      const pill = document.createElement('span');
-      const errorCount = cycle.errorCount ?? 0;
-      pill.className = `pill ${errorCount > 0 ? 'bad' : 'ok'}`;
-      pill.textContent = cycle.fatal ? 'fatal' : String(errorCount);
-      tdErrors.appendChild(pill);
-      tr.appendChild(tdErrors);
-
-      tbody.appendChild(tr);
-    }
+    const stats = await fetchJson('/api/stats');
+    $('data-tracked').textContent = fmtNumber(stats.islandsTracked);
+    $('data-withdata').textContent = fmtNumber(stats.islandsWithData);
+    $('data-snapshots').textContent = fmtNumber(stats.snapshotCount);
+    const last = stats.crawlState?.lastCrawlFinishedAt;
+    $('data-lastupdate').textContent = last ? fmtRelativeTime(last) : '—';
+    $('data-updated').textContent = last ? `stats last refreshed ${fmtRelativeTime(last)}` : '';
   } catch (err) {
-    console.error('loadHealth failed', err);
+    console.error('loadDataView failed', err);
   }
 }
 
