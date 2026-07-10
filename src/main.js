@@ -10,12 +10,10 @@ const supabaseSync = require('./supabaseSync');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const PORT = Number(process.env.PORT) || 3742;
 
-// CRAWL_INTERVAL_MS no longer gates scheduling directly (see the continuous
-// loop below) - a cycle now covers the whole eligible backlog each time and
-// routinely runs for hours, so waiting for a fixed tick before starting the
-// next one would just add idle time for no reason. It's kept as a
-// stall-detection threshold and as informational text in the UI.
-const CRAWL_INTERVAL_MS = Number(process.env.CRAWL_INTERVAL_MS) || 10 * 60 * 1000;
+const CRAWL_INTERVAL_MS = Number(process.env.CRAWL_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+// Decoupled from CRAWL_INTERVAL_MS on purpose - a real hang should be
+// flagged in hours, not after most of a day has gone by.
+const STALL_WARNING_MS = Number(process.env.STALL_WARNING_MS) || 3 * 60 * 60 * 1000;
 const CATALOG_PAGES_PER_CYCLE = Number(process.env.CATALOG_PAGES_PER_CYCLE) || 5;
 const MAX_METRICS_PER_CYCLE = Number(process.env.MAX_METRICS_PER_CYCLE) || 250000;
 const METRICS_DELAY_MS = Number(process.env.METRICS_DELAY_MS) || 80;
@@ -134,19 +132,21 @@ async function runCrawlCycle(reason) {
   }
 }
 
-// Continuous back-to-back crawling: as soon as one cycle ends, the next one
-// starts (after a small fixed cooldown, just to yield the event loop - not a
-// real pacing mechanism, since actual API pacing happens per-request inside
-// crawlOnce). A cycle now covers the whole eligible backlog, so this is what
-// makes the crawler actually converge on full catalog coverage over time
-// instead of only advancing a capped amount every fixed interval.
+// One cycle per day: sleep until CRAWL_INTERVAL_MS has elapsed since the
+// cycle *started* (not since it finished), so a slow cycle doesn't push the
+// schedule later and later - it just eats into that day's wait. If a cycle
+// somehow runs longer than the full interval, the next one starts right
+// away rather than waiting an extra day on top.
 let shuttingDown = false;
 async function loop() {
   let firstRun = true;
   while (!shuttingDown) {
-    await runCrawlCycle(firstRun ? 'startup' : 'continuous');
+    const cycleStartedAt = Date.now();
+    await runCrawlCycle(firstRun ? 'startup' : 'scheduled');
     firstRun = false;
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const waitMs = Math.max(CRAWL_INTERVAL_MS - (Date.now() - cycleStartedAt), 2000);
+    console.log(`[crawler] next cycle in ${(waitMs / 60000).toFixed(1)} min`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
 }
 loop();
@@ -159,11 +159,11 @@ loop();
 setInterval(() => {
   if (crawlInFlight && currentCycle) {
     const runningForMs = Date.now() - new Date(currentCycle.startedAt).getTime();
-    if (runningForMs > CRAWL_INTERVAL_MS * 12) {
+    if (runningForMs > STALL_WARNING_MS) {
       console.error(`[main] current cycle has been running for ${(runningForMs / 60000).toFixed(1)} min - possible stall`);
     }
   }
-}, CRAWL_INTERVAL_MS);
+}, 10 * 60 * 1000);
 
 function shutdown(signal) {
   console.log(`[main] received ${signal}, shutting down`);

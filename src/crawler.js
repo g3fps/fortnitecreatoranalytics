@@ -43,6 +43,18 @@ async function crawlOnce(store, opts = {}) {
     // cycle at this scale runs for hours, which is why persistence below is
     // periodic rather than only at the very end.
     maxMetricsPerCycle = 250000,
+    // Real-world data: only ~24-32% of ever-polled islands turn out to have
+    // any live traffic at all (the rest 404 or come back all-null every
+    // time). Repolling those "cold" islands every cycle at the same
+    // priority as ones that actually have traffic wastes most of the
+    // budget re-confirming they're still dead. Cold islands only get
+    // included on 1 out of every N cycles (to still catch revivals
+    // eventually), tracked via crawl_state's cyclesCompleted counter.
+    coldRepollEveryNCycles = 20,
+    // Of whatever budget remains after "hot" islands (see tiering below),
+    // this share goes to cold islands on a cycle where they're included at
+    // all - the rest goes to "unknown" (never-polled) islands.
+    coldShareOnColdCycle = 0.5,
     onProgress = () => {},
   } = opts;
 
@@ -109,35 +121,64 @@ async function crawlOnce(store, opts = {}) {
   store.setCrawlState({ cursor: cursor || null });
 
   // --- Phase 2: metrics polling ---
-  // Pure least-recently-polled-first is a breadth-maximizing strategy: with
-  // a catalog far larger than polling capacity, a never-polled island is
-  // always "more overdue" than one already polled once, so already-polled
-  // islands would almost never get rechecked and every island would top out
-  // at exactly 1 snapshot forever - which would make trend/movers data
-  // permanently empty. Reserve a slice of the budget for re-polling islands
-  // that already have a reading (oldest-checked first), so history actually
-  // accumulates depth, not just breadth.
-  const REPOLL_SHARE = 0.3;
-  const repollBudget = Math.floor(maxMetricsPerCycle * REPOLL_SHARE);
-  const discoverBudget = maxMetricsPerCycle - repollBudget;
-
-  const neverPolled = [];
-  const alreadyPolled = [];
+  // Three tiers, not just "polled vs not":
+  //   hot     - has shown at least one live reading. This is what keeps the
+  //             leaderboard/movers fresh, so it's repolled every cycle,
+  //             ahead of everything else.
+  //   cold    - polled before, never showed anything (404s or all-null
+  //             every time). Real data: only ~24-32% of ever-polled islands
+  //             turn out to have live traffic, so most already-polled
+  //             islands are cold - repolling them as often as hot ones
+  //             would mostly just reconfirm they're still dead. Only
+  //             included on 1 out of every coldRepollEveryNCycles cycles,
+  //             to still catch revivals eventually.
+  //   unknown - never polled. Gets whatever budget hot doesn't use, for
+  //             ongoing catalog discovery.
+  const hot = [];
+  const cold = [];
+  const unknown = [];
   for (const island of store.islands.values()) {
-    if (island.lastMetricsPolledAt) alreadyPolled.push(island);
-    else neverPolled.push(island);
+    if (!island.lastMetricsPolledAt) {
+      unknown.push(island);
+    } else if (store.getHistory(island.code).length > 0) {
+      hot.push(island);
+    } else {
+      cold.push(island);
+    }
   }
-  alreadyPolled.sort((a, b) => a.lastMetricsPolledAt.localeCompare(b.lastMetricsPolledAt));
+  // Oldest-checked-first within each tier, same fairness principle as
+  // before - if a tier exceeds its budget, whoever's most overdue goes
+  // first rather than whoever happens to iterate first.
+  hot.sort((a, b) => a.lastMetricsPolledAt.localeCompare(b.lastMetricsPolledAt));
+  cold.sort((a, b) => a.lastMetricsPolledAt.localeCompare(b.lastMetricsPolledAt));
 
-  const candidates = [...neverPolled.slice(0, discoverBudget), ...alreadyPolled.slice(0, repollBudget)];
+  const cyclesCompleted = store.getCrawlState().cyclesCompleted || 0;
+  const includeColdThisCycle = cyclesCompleted % coldRepollEveryNCycles === 0;
 
-  // Cycles now routinely run for hours (250k-island budget at ~150-200ms/req
-  // is many hours of wall clock). Persisting islands.json only at the very
+  const budgetAfterHot = Math.max(0, maxMetricsPerCycle - hot.length);
+  // Clamped to cold.length so budget reserved for cold islands that don't
+  // exist (or don't need it this cycle) flows to unknown instead of being
+  // wasted - otherwise a cold cycle with few/no cold candidates would poll
+  // fewer islands total than a non-cold cycle for no reason.
+  const coldBudget = includeColdThisCycle ? Math.min(Math.floor(budgetAfterHot * coldShareOnColdCycle), cold.length) : 0;
+  const unknownBudget = budgetAfterHot - coldBudget;
+
+  const candidates = [...hot.slice(0, maxMetricsPerCycle), ...unknown.slice(0, unknownBudget), ...cold.slice(0, coldBudget)];
+
+  // Cycles routinely run for hours. Persisting islands.json only at the very
   // end would mean a crash mid-cycle loses every lastMetricsPolledAt update
   // from that entire run - not data loss (snapshots are appended immediately
   // in addSnapshot), but wasted re-polling of islands we in fact just
   // checked. Persist periodically instead so the loss window is bounded.
-  const PERSIST_EVERY = 500;
+  //
+  // Throttled on elapsed time, not poll count: persistIslands() serializes
+  // and rewrites the *entire* islands.json (~70MB at 184k islands), so a
+  // fixed every-N-polls rule ties total disk churn to catalog size - a full
+  // baseline sweep at every-500-polls would rewrite it hundreds of times.
+  // Time-based keeps the crash-loss window bounded (what actually matters)
+  // while making that churn independent of how big the catalog gets.
+  const PERSIST_EVERY_MS = 60 * 1000;
+  let lastPersistAt = Date.now();
 
   consecutiveFailures = 0;
   for (const island of candidates) {
@@ -176,15 +217,16 @@ async function crawlOnce(store, opts = {}) {
       totalCandidates: candidates.length,
     });
 
-    if (result.metricsPolled % PERSIST_EVERY === 0) {
+    if (Date.now() - lastPersistAt >= PERSIST_EVERY_MS) {
       store.persistIslands();
+      lastPersistAt = Date.now();
     }
 
     await sleep(metricsDelayMs);
   }
 
   store.persistIslands();
-  store.setCrawlState({ lastCrawlFinishedAt: new Date().toISOString() });
+  store.setCrawlState({ lastCrawlFinishedAt: new Date().toISOString(), cyclesCompleted: cyclesCompleted + 1 });
 
   return result;
 }

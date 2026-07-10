@@ -319,30 +319,25 @@ test('GET /api/lookup/:code fetches a map directly from Epic, even one the crawl
   }
 });
 
-test('crawlOnce metrics phase reserves budget for re-polling already-seen islands, not just never-polled ones', async () => {
+test('crawlOnce prioritizes hot islands (already showed data) over unknown ones when budget is tight', async () => {
   const dir = makeTempDir();
   const store = new Store(dir);
 
-  // 20 islands already polled a while ago (have 1 snapshot each), 20 that
-  // have never been polled. With maxMetricsPerCycle=10 and a 30% repoll
-  // share, we expect roughly 7 never-polled + 3 already-polled this cycle -
-  // critically, more than zero from the already-polled pool, which is the
-  // bug this test guards against (pure least-recently-polled-first starves
-  // already-polled islands forever once the catalog outgrows capacity).
-  for (let i = 0; i < 20; i++) {
-    const code = `OLD${i}-0000-0000`.padEnd(14, '0').slice(0, 14);
-    store.upsertIsland({ code, title: `Old ${i}`, creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
-    const rec = store.islands.get(code);
-    rec.lastMetricsPolledAt = '2020-01-01T00:00:00.000Z'; // long overdue for a recheck
+  // 5 "hot" islands: already polled and have a real snapshot on file.
+  for (let i = 0; i < 5; i++) {
+    const code = `HOT${i}-0000-0000`.padEnd(14, '0').slice(0, 14);
+    store.upsertIsland({ code, title: `Hot ${i}`, creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+    store.islands.get(code).lastMetricsPolledAt = '2020-01-01T00:00:00.000Z';
     store.addSnapshot(code, { capturedAt: '2020-01-01T00:00:00.000Z', peakCCU: 1, uniquePlayers: 1, minutesPlayed: 1, averageMinutesPerPlayer: 1, plays: 1, favorites: 1, recommendations: 1, retentionD1: null, retentionD7: null });
   }
+  // 20 "unknown" islands: never polled.
   for (let i = 0; i < 20; i++) {
-    const code = `NEW${i}-0000-0000`.padEnd(14, '0').slice(0, 14);
-    store.upsertIsland({ code, title: `New ${i}`, creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+    const code = `UNK${i}-0000-0000`.padEnd(14, '0').slice(0, 14);
+    store.upsertIsland({ code, title: `Unknown ${i}`, creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
   }
 
   const originalFetch = global.fetch;
-  global.fetch = async (url) => ({
+  global.fetch = async () => ({
     ok: true,
     status: 200,
     headers: { get: () => null },
@@ -354,14 +349,90 @@ test('crawlOnce metrics phase reserves budget for re-polling already-seen island
     delete require.cache[require.resolve('../src/crawler')];
     const { crawlOnce: freshCrawlOnce } = require('../src/crawler');
 
-    await freshCrawlOnce(store, { catalogPages: 0, maxMetricsPerCycle: 10 });
+    // Budget covers all 5 hot islands plus 3 more - hot should be fully
+    // repolled first, leaving exactly 3 for unknown.
+    await freshCrawlOnce(store, { catalogPages: 0, maxMetricsPerCycle: 8 });
 
-    const polledOld = [...store.islands.values()].filter((r) => r.code.startsWith('OLD') && r.lastMetricsPolledAt !== '2020-01-01T00:00:00.000Z').length;
-    const polledNew = [...store.islands.values()].filter((r) => r.code.startsWith('NEW') && r.lastMetricsPolledAt).length;
+    const polledHot = [...store.islands.values()].filter((r) => r.code.startsWith('HOT') && r.lastMetricsPolledAt !== '2020-01-01T00:00:00.000Z').length;
+    const polledUnknown = [...store.islands.values()].filter((r) => r.code.startsWith('UNK') && r.lastMetricsPolledAt).length;
 
-    assert.ok(polledOld > 0, 'already-polled islands must get some repoll budget, not be starved forever');
-    assert.ok(polledNew > 0, 'never-polled islands should still get the majority of the budget');
-    assert.ok(polledNew > polledOld, 'discovery should still outweigh repolling under the default 70/30 split');
+    assert.equal(polledHot, 5, 'every hot island should be repolled before any budget goes to unknown ones');
+    assert.equal(polledUnknown, 3, 'leftover budget after hot islands goes to unknown ones');
+  } finally {
+    global.fetch = originalFetch;
+    delete require.cache[require.resolve('../src/fortniteApi')];
+    delete require.cache[require.resolve('../src/crawler')];
+  }
+});
+
+test('crawlOnce only repolls cold islands (polled before, never showed data) on the periodic cold cycle', async () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+
+  for (let i = 0; i < 5; i++) {
+    const code = `COLD${i}-000-0000`.padEnd(14, '0').slice(0, 14);
+    store.upsertIsland({ code, title: `Cold ${i}`, creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+    store.islands.get(code).lastMetricsPolledAt = '2020-01-01T00:00:00.000Z'; // polled before, no addSnapshot call - never showed data
+  }
+
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 404, headers: { get: () => null }, text: async () => '{"errorMessage":"Not found"}' });
+
+  try {
+    delete require.cache[require.resolve('../src/fortniteApi')];
+    delete require.cache[require.resolve('../src/crawler')];
+    const { crawlOnce: freshCrawlOnce } = require('../src/crawler');
+
+    // cyclesCompleted=1 with the default coldRepollEveryNCycles=20 is not a
+    // cold cycle (1 % 20 !== 0) - cold islands should be skipped entirely.
+    store.setCrawlState({ cyclesCompleted: 1 });
+    await freshCrawlOnce(store, { catalogPages: 0, maxMetricsPerCycle: 100 });
+    const polledOnNonColdCycle = [...store.islands.values()].filter((r) => r.code.startsWith('COLD') && r.lastMetricsPolledAt !== '2020-01-01T00:00:00.000Z').length;
+    assert.equal(polledOnNonColdCycle, 0, 'cold islands should not be touched on a non-cold cycle');
+
+    // cyclesCompleted=20 IS a cold cycle (20 % 20 === 0) - now they should
+    // get repolled.
+    store.setCrawlState({ cyclesCompleted: 20 });
+    await freshCrawlOnce(store, { catalogPages: 0, maxMetricsPerCycle: 100 });
+    const polledOnColdCycle = [...store.islands.values()].filter((r) => r.code.startsWith('COLD') && r.lastMetricsPolledAt !== '2020-01-01T00:00:00.000Z').length;
+    assert.equal(polledOnColdCycle, 5, 'cold islands should be repolled on the periodic cold cycle');
+  } finally {
+    global.fetch = originalFetch;
+    delete require.cache[require.resolve('../src/fortniteApi')];
+    delete require.cache[require.resolve('../src/crawler')];
+  }
+});
+
+test('crawlOnce with maxMetricsPerCycle=0 polls nothing (backs scripts/crawl-once.js --catalog-only)', async () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+
+  // One island of each tier, so an off-by-one in the budget math would show
+  // up as *something* getting polled rather than nothing.
+  store.upsertIsland({ code: 'HOT0-0000-0000', title: 'Hot', creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+  store.islands.get('HOT0-0000-0000').lastMetricsPolledAt = '2020-01-01T00:00:00.000Z';
+  store.addSnapshot('HOT0-0000-0000', { capturedAt: '2020-01-01T00:00:00.000Z', peakCCU: 1, uniquePlayers: 1, minutesPlayed: 1, averageMinutesPerPlayer: 1, plays: 1, favorites: 1, recommendations: 1, retentionD1: null, retentionD7: null });
+  store.upsertIsland({ code: 'COLD-0000-0000', title: 'Cold', creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+  store.islands.get('COLD-0000-0000').lastMetricsPolledAt = '2020-01-01T00:00:00.000Z';
+  store.upsertIsland({ code: 'UNK0-0000-0000', title: 'Unknown', creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+
+  const originalFetch = global.fetch;
+  let metricsRequests = 0;
+  global.fetch = async (url) => {
+    if (String(url).includes('/metrics/')) metricsRequests++;
+    return { ok: true, status: 200, headers: { get: () => null }, text: async () => JSON.stringify({ peakCCU: [{ value: 5, timestamp: '2026-07-10T00:00:00.000Z' }] }) };
+  };
+
+  try {
+    delete require.cache[require.resolve('../src/fortniteApi')];
+    delete require.cache[require.resolve('../src/crawler')];
+    const { crawlOnce: freshCrawlOnce } = require('../src/crawler');
+
+    const result = await freshCrawlOnce(store, { catalogPages: 0, maxMetricsPerCycle: 0 });
+
+    assert.equal(metricsRequests, 0, 'no metrics request should be issued at all');
+    assert.equal(result.metricsPolled, 0);
+    assert.equal(store.islands.get('UNK0-0000-0000').lastMetricsPolledAt, null, 'unknown island must stay unpolled');
   } finally {
     global.fetch = originalFetch;
     delete require.cache[require.resolve('../src/fortniteApi')];
