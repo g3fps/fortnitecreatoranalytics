@@ -173,6 +173,24 @@ node scripts/apply-schema.js          # applies db/schema.sql
 node scripts/migrate-to-supabase.js   # backfills existing local data, if any
 ```
 
+**Accounts (optional).** The dashboard is fully usable logged-out — accounts
+only add a personal "My Islands" watchlist. Auth is Supabase Auth, run
+entirely in the browser with the public anon key; no credentials or user
+data pass through this app's own API. To enable it:
+
+1. In the Supabase dashboard → **Authentication → Providers**, enable
+   **Email**. (Turn "Confirm email" on or off to taste — off is smoother for
+   testing, on is safer for production.)
+2. Make sure `db/schema.sql` has been applied (it creates the
+   `user_watchlist` table with row-level security so users can only touch
+   their own rows).
+3. `node scripts/gen-public-config.js` writes `public/config.js` with the
+   public Supabase URL + anon key (safe to commit — the anon key is a public
+   client key; RLS enforces all access). Rerun it if those values change.
+
+`public/vendor/supabase.js` is the vendored supabase-js UMD build (no CDN, no
+build step, consistent with the rest of the frontend).
+
 Other useful commands:
 
 ```
