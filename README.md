@@ -199,9 +199,9 @@ Environment variables:
 |---|---|
 | `GET /api/health` | liveness check |
 | `GET /api/stats` | crawl coverage: islands tracked, snapshots collected, last crawl time |
-| `GET /api/leaderboard?metric=peakCCU&limit=25` | top islands by the latest captured reading for that metric |
-| `GET /api/movers?metric=peakCCU&direction=up&limit=20` | biggest gainers/droppers between an island's two most recent readings |
-| `GET /api/creators?limit=25` | per-creator rollup (island count, total metrics, best island) |
+| `GET /api/leaderboard?metric=peakCCU&limit=25` | top islands by the latest captured reading for that metric. Also accepts `tag=` and `creatorCode=` filters. |
+| `GET /api/movers?metric=peakCCU&direction=up&limit=20` | biggest gainers/droppers between an island's two most recent readings. Also accepts `tag=` and `creatorCode=` filters. |
+| `GET /api/creators?limit=25` | per-creator leaderboard (island count, total metrics, best island), plus `totalCreators`/`creatorsWithData` — the honest denominator, since creators with no measured island can't appear in the ranking itself |
 | `GET /api/tags?limit=40` | tag frequency across the discovered catalog |
 | `GET /api/browse` | paginated/filterable catalog listing (`tag`, `creatorCode`, `hasData`, `sort`, `dir`, `page`, `pageSize`) |
 | `GET /api/islands?search=...&limit=25` | search by title / code / creator |
@@ -212,6 +212,32 @@ Environment variables:
 Allowed `metric` values: `peakCCU`, `uniquePlayers`, `minutesPlayed`,
 `averageMinutesPerPlayer`, `plays`, `favorites`, `recommendations`,
 `retentionD1`, `retentionD7`.
+
+## Dashboard
+
+The `public/` single-page app (deep-linkable via URL hash, e.g.
+`/#leaderboard`) has:
+
+- **Overview** — coverage KPIs, snapshot-growth chart, top islands. First
+  visit shows a dismissable explainer of what the tool is and why the data
+  is unique.
+- **Leaderboard** — ranked by any metric, filterable by tag/genre and
+  creator code, CSV export.
+- **Movers** — biggest gainers/decliners between an island's two most recent
+  readings (the one view Epic's API structurally can't provide), same
+  tag/creator filters.
+- **Creators** — per-creator reach leaderboard, with an honest "N of M
+  creators have measurable traffic" denominator.
+- **Compare** — up to 3 islands side by side, leader highlighted per metric.
+  The core "how do I stack up against them?" view.
+- **Browse** — the full catalog, paginated and filterable; filtering to one
+  creator shows a portfolio summary (combined reach, top island).
+- **Explore** — search tracked islands, or look up any island code live from
+  Epic (adds it to tracking immediately).
+- **Crawl Health** — cycle log and coverage internals.
+
+Clicking any island opens a detail drawer (all metrics, history sparkline,
+and one-click "add to compare" / "see all by this creator").
 
 ## Verified against the live API (2026-07-09/10)
 
