@@ -1,0 +1,9 @@
+node_modules/
+data/*.json
+data/*.jsonl
+data/*.corrupt-*
+data/*.tmp-*
+*.log
+
+.vercel
+.env*

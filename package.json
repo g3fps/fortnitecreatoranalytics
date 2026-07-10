@@ -1,0 +1,22 @@
+{
+  "name": "fortnite-creator-analytics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Competitive intelligence dashboard for Fortnite Creative/UEFN island creators, built on Epic's public Ecosystem Data API.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "crawl": "node scripts/crawl-once.js",
+    "test": "node --test scripts/smoke-test.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.2",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "pg": "^8.22.0"
+  }
+}

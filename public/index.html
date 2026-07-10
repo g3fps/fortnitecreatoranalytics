@@ -1,0 +1,322 @@
+<title>Island Ledger — Fortnite Creative Analytics</title>
+<link rel="stylesheet" href="/style.css">
+
+<header class="topbar-nav">
+  <div class="wordmark">
+    <span class="mark"></span>
+    <span class="name">Island Ledger</span>
+    <span class="tag">· competitive intel for Creative islands</span>
+  </div>
+
+  <nav class="nav">
+    <button class="nav-item active" data-view="overview">Overview</button>
+    <button class="nav-item" data-view="leaderboard">Leaderboard</button>
+    <button class="nav-item" data-view="movers">Movers</button>
+    <button class="nav-item" data-view="creators">Creators</button>
+    <button class="nav-item" data-view="browse">Browse<span class="nav-count" id="nav-browse-count"></span></button>
+    <button class="nav-item" data-view="explore">Explore</button>
+    <button class="nav-item" data-view="health">Crawl Health</button>
+  </nav>
+
+  <div class="crawl-status" id="crawl-status">
+    <span class="status-dot live" id="status-dot"></span>
+    <span id="status-text">connecting…</span>
+  </div>
+</header>
+
+<main>
+    <!-- ===================== OVERVIEW ===================== -->
+    <section class="view active" id="view-overview">
+      <div class="topbar">
+        <h1>Overview</h1>
+        <span class="sub" id="overview-updated">—</span>
+      </div>
+
+      <div class="kpi-row" id="kpi-row">
+        <div class="tile">
+          <span class="tile-label">Islands in catalog</span>
+          <span class="tile-value" id="kpi-islands">—</span>
+          <span class="tile-note">discovered via catalog crawl</span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Catalog checked</span>
+          <span class="tile-value accent-sonar" id="kpi-checked">—</span>
+          <span class="tile-note" id="kpi-checked-note">% of catalog polled at least once</span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Signal rate</span>
+          <span class="tile-value accent-gold" id="kpi-signal">—</span>
+          <span class="tile-note">of islands checked, % showing live traffic</span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Crawler status</span>
+          <span class="tile-value" id="kpi-lastcrawl" style="font-size:17px;">—</span>
+          <span class="tile-note" id="kpi-lastcrawl-note">—</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Snapshots collected over time</h2>
+        <p class="panel-sub">Cumulative count of readings this crawler has captured. Epic's API keeps none of this — every point here exists only because it was polled at the time.</p>
+        <div class="chart-box" id="growth-chart"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="titles">
+            <h2>Top islands right now</h2>
+            <p class="panel-sub">By peak concurrent players, latest reading.</p>
+          </div>
+          <button class="btn-ghost" id="overview-see-all">Full leaderboard →</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Island</th><th>Peak CCU</th></tr></thead>
+            <tbody id="overview-board-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LEADERBOARD ===================== -->
+    <section class="view" id="view-leaderboard">
+      <div class="topbar">
+        <h1>Leaderboard</h1>
+        <span class="sub" id="leaderboard-count">—</span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="titles">
+            <h2>Ranked by metric</h2>
+            <p class="panel-sub">Built from this crawler's own readings — Epic's API has no leaderboard endpoint of its own.</p>
+          </div>
+          <div class="tabs" id="metric-tabs">
+            <button class="tab-btn active" data-metric="peakCCU">Peak CCU</button>
+            <button class="tab-btn" data-metric="uniquePlayers">Unique Players</button>
+            <button class="tab-btn" data-metric="minutesPlayed">Minutes Played</button>
+            <button class="tab-btn" data-metric="plays">Plays</button>
+            <button class="tab-btn" data-metric="favorites">Favorites</button>
+            <button class="tab-btn" data-metric="recommendations">Recommendations</button>
+            <button class="tab-btn" data-metric="retentionD1">D1 Retention</button>
+            <button class="tab-btn" data-metric="retentionD7">D7 Retention</button>
+          </div>
+        </div>
+        <div class="filter-row">
+          <button class="btn-ghost" id="leaderboard-export">⇩ Export CSV</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Island</th><th id="leaderboard-value-head">Value</th></tr></thead>
+            <tbody id="leaderboard-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="leaderboard-empty" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- ===================== MOVERS ===================== -->
+    <section class="view" id="view-movers">
+      <div class="topbar">
+        <h1>Movers</h1>
+        <span class="sub" id="movers-count">—</span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="titles">
+            <h2>Biggest change since the previous reading</h2>
+            <p class="panel-sub">Only Epic's API structurally cannot show this — it has no history at all. Requires an island to have at least 2 captured snapshots, so this view fills in as the crawler runs longer.</p>
+          </div>
+          <div class="tabs" id="movers-direction-tabs">
+            <button class="tab-btn active" data-direction="up">▲ Gainers</button>
+            <button class="tab-btn" data-direction="down">▼ Decliners</button>
+          </div>
+        </div>
+        <div class="filter-row">
+          <div class="tabs" id="movers-metric-tabs">
+            <button class="tab-btn active" data-metric="peakCCU">Peak CCU</button>
+            <button class="tab-btn" data-metric="uniquePlayers">Unique Players</button>
+            <button class="tab-btn" data-metric="minutesPlayed">Minutes Played</button>
+            <button class="tab-btn" data-metric="favorites">Favorites</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Island</th><th>Previous → Latest</th><th>Change</th></tr></thead>
+            <tbody id="movers-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="movers-empty" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- ===================== CREATORS ===================== -->
+    <section class="view" id="view-creators">
+      <div class="topbar">
+        <h1>Creators</h1>
+        <span class="sub" id="creators-count">—</span>
+      </div>
+
+      <div class="panel">
+        <h2>Ranked by total reach</h2>
+        <p class="panel-sub">Sum of peak CCU across every island we've measured for that creator. Click a creator to browse their full catalog, including islands not yet polled.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Creator</th><th>Islands</th><th>Best Island</th><th>Total Peak CCU</th></tr></thead>
+            <tbody id="creators-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="creators-empty" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- ===================== BROWSE ===================== -->
+    <section class="view" id="view-browse">
+      <div class="topbar">
+        <h1>Browse Catalog</h1>
+        <span class="sub" id="browse-total">—</span>
+      </div>
+
+      <div class="panel">
+        <h2>Filter by genre</h2>
+        <div class="tag-cloud" id="tag-cloud"></div>
+
+        <div class="filter-row" id="browse-active-filters"></div>
+
+        <div class="filter-row">
+          <select id="browse-hasdata">
+            <option value="">All islands</option>
+            <option value="true">With live data</option>
+            <option value="false">Not polled yet</option>
+          </select>
+          <select id="browse-sort">
+            <option value="title">Sort: Title A–Z</option>
+            <option value="firstSeenAt">Sort: Recently discovered</option>
+            <option value="peakCCU">Sort: Peak CCU</option>
+            <option value="uniquePlayers">Sort: Unique Players</option>
+            <option value="minutesPlayed">Sort: Minutes Played</option>
+            <option value="favorites">Sort: Favorites</option>
+          </select>
+          <select id="browse-dir">
+            <option value="desc">High → Low</option>
+            <option value="asc">Low → High</option>
+          </select>
+          <button class="btn-ghost" id="browse-export">⇩ Export page CSV</button>
+        </div>
+
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Island</th><th>Peak CCU</th><th>Unique Players</th><th>Discovered</th></tr></thead>
+            <tbody id="browse-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="browse-empty" style="display:none;"></div>
+        <div class="pagination">
+          <button class="btn-ghost" id="browse-prev">← Prev</button>
+          <span id="browse-page-label">Page 1</span>
+          <button class="btn-ghost" id="browse-next">Next →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== EXPLORE ===================== -->
+    <section class="view" id="view-explore">
+      <div class="topbar">
+        <h1>Explore</h1>
+        <span class="sub">Search what's tracked, or pull any map live</span>
+      </div>
+
+      <div class="panel">
+        <h2>Look up your own map</h2>
+        <p class="panel-sub">Pull live data for a specific island code straight from Epic's API — even if this crawler hasn't discovered it yet. It gets added to tracking immediately so it's included in every future crawl cycle.</p>
+        <div class="filter-row" style="margin-bottom:0;">
+          <input type="text" id="lookup-input" placeholder="1234-5678-9012" style="flex:1; min-width:220px;">
+          <button class="tab-btn active" id="lookup-btn">Look Up</button>
+        </div>
+        <div id="lookup-result" style="margin-top:14px;"></div>
+      </div>
+
+      <div class="panel">
+        <input type="search" class="search-hero" id="search-input" placeholder="Search what's already tracked — title, code, or creator…">
+      </div>
+
+      <div class="panel" id="explore-results-panel" style="display:none;">
+        <h2>Results</h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Island</th><th>Peak CCU</th><th>Unique Players</th></tr></thead>
+            <tbody id="explore-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CRAWL HEALTH ===================== -->
+    <section class="view" id="view-health">
+      <div class="topbar">
+        <h1>Crawl Health</h1>
+        <span class="sub" id="health-updated">—</span>
+      </div>
+
+      <div class="kpi-row">
+        <div class="tile">
+          <span class="tile-label">Catalog cursor</span>
+          <span class="tile-value mono-cell" id="health-cursor" style="font-size:13px;">—</span>
+          <span class="tile-note">position in Epic's island catalog</span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Last cycle duration</span>
+          <span class="tile-value" id="health-duration">—</span>
+          <span class="tile-note">catalog scan + metrics polling</span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Last cycle errors</span>
+          <span class="tile-value" id="health-errors">—</span>
+          <span class="tile-note">network / API failures, auto-retried</span>
+        </div>
+        <div class="tile">
+          <span class="tile-label">Current cycle</span>
+          <span class="tile-value accent-sonar" id="health-progress" style="font-size:19px;">—</span>
+          <span class="tile-note">cycles now run continuously, back-to-back</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Recent cycles</h2>
+        <p class="panel-sub">Most recent first. Each cycle discovers new islands via catalog pagination, then polls the eligible backlog for fresh metrics — 70% never-polled islands, 30% re-checks of islands already measured, oldest-checked first. Cycles now run back-to-back continuously.</p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>Started</th><th>Reason</th><th>New islands</th><th>Polled</th><th>New snapshots</th><th>Not found</th><th>Errors</th></tr>
+            </thead>
+            <tbody id="health-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="health-empty" style="display:none;">No cycles logged yet.</div>
+      </div>
+    </section>
+
+    <footer style="border-top:1px solid var(--line); padding-top:16px; margin-top:8px; font-size:11.5px; color:var(--muted); line-height:1.6;">
+      Local instance. Built on Epic's public <code>ecosystem/v1</code> API — no auth, no accounts. History is only what this crawler has captured itself.
+    </footer>
+</main>
+
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div>
+      <h3 id="drawer-title">—</h3>
+      <div class="meta" id="drawer-meta">—</div>
+    </div>
+    <button class="close-btn" id="drawer-close">close</button>
+  </div>
+  <div class="tag-row" id="drawer-tags"></div>
+  <div class="metric-grid" id="drawer-metrics"></div>
+  <div class="chart-box">
+    <div class="chart-caption" id="drawer-chart-caption">History (captured by this crawler only)</div>
+    <div id="drawer-chart"></div>
+  </div>
+</aside>
+
+<script src="/app.js"></script>
