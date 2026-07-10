@@ -254,6 +254,24 @@ class Store {
     return rows.slice(0, limit);
   }
 
+  // A creator with zero islands showing data doesn't rank low in
+  // getCreatorLeaderboard - it's absent entirely, since there's nothing to
+  // rank it on. That's correct for a leaderboard, but without this,
+  // there's no honest denominator anywhere: someone browsing Creators would
+  // never learn that creator ever existed. Same "tracked vs has-data" split
+  // getStats() already does for islands, one level up.
+  getCreatorCounts() {
+    const withData = new Set();
+    const allCreators = new Set();
+    for (const meta of this.islands.values()) {
+      const code = meta.creatorCode || '(unknown)';
+      allCreators.add(code);
+      const hist = this.history.get(meta.code);
+      if (hist && hist.length > 0) withData.add(code);
+    }
+    return { totalCreators: allCreators.size, creatorsWithData: withData.size };
+  }
+
   // Tag frequency across the whole discovered catalog (not just islands with
   // data) - this answers "what does Creative's catalog actually look like",
   // which is legitimate on its own even before a tag's islands get polled.

@@ -222,6 +222,26 @@ test('getCreatorLeaderboard counts all islands but ranks only on islands with da
   assert.equal(board[0].creatorCode, 'popular', 'higher totalPeakCCU should rank first');
 });
 
+test('getCreatorCounts sees creators with zero live islands, which the leaderboard omits entirely', () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+
+  store.upsertIsland({ code: 'LIVE-00000-000', title: 'Has data', creatorCode: 'alive-creator', category: null, createdIn: 'UEFN', tags: [] });
+  store.addSnapshot('LIVE-00000-000', { capturedAt: '2026-07-10T00:00:00.000Z', peakCCU: 10, uniquePlayers: 10, minutesPlayed: 1, averageMinutesPerPlayer: 1, plays: 1, favorites: 1, recommendations: 1, retentionD1: null, retentionD7: null });
+
+  // A creator whose islands have all been polled and never showed data -
+  // getCreatorLeaderboard() correctly can't rank them on anything, but they
+  // still exist and someone should be able to learn that.
+  store.upsertIsland({ code: 'DEAD-00000-000', title: 'No data', creatorCode: 'dead-creator', category: null, createdIn: 'UEFN', tags: [] });
+
+  const counts = store.getCreatorCounts();
+  assert.equal(counts.totalCreators, 2);
+  assert.equal(counts.creatorsWithData, 1);
+
+  const board = store.getCreatorLeaderboard(10);
+  assert.ok(!board.some((c) => c.creatorCode === 'dead-creator'), 'dead-creator should be absent from the leaderboard, not ranked last');
+});
+
 test('getTagCounts aggregates across the whole catalog, sorted descending', () => {
   const dir = makeTempDir();
   const store = new Store(dir);

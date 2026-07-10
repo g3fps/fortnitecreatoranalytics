@@ -271,6 +271,19 @@ class SupabaseStore {
     }));
   }
 
+  // See Store.getCreatorCounts() - the leaderboard above correctly omits
+  // creators with zero islands showing data (nothing to rank them on), but
+  // that means they're invisible without this honest denominator alongside it.
+  async getCreatorCounts() {
+    const [{ count: totalCreators }, { count: creatorsWithData }] = await Promise.all(
+      [
+        this.client.from('creator_stats').select('creator_code', { count: 'exact', head: true }),
+        this.client.from('creator_stats').select('creator_code', { count: 'exact', head: true }).gt('islands_with_data', 0),
+      ].map((p) => p.then(check))
+    );
+    return { totalCreators: totalCreators || 0, creatorsWithData: creatorsWithData || 0 };
+  }
+
   async getTagCounts(limit = 40) {
     const { data } = check(await this.client.from('tag_counts').select('*').order('count', { ascending: false }).limit(limit));
     return (data || []).map((r) => ({ tag: r.tag, count: r.count }));

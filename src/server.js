@@ -100,7 +100,8 @@ function createServer(store, options = {}) {
     ah(async (req, res) => {
       const limitRaw = Number(req.query.limit);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 25;
-      res.json({ rows: await store.getCreatorLeaderboard(limit) });
+      const [rows, counts] = await Promise.all([store.getCreatorLeaderboard(limit), store.getCreatorCounts()]);
+      res.json({ ...counts, rows });
     })
   );
 

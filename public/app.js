@@ -40,6 +40,19 @@ function fmtNumber(value) {
   return value.toFixed(2);
 }
 
+// retentionD1/D7 are fractions (0.6 = 60%) straight from Epic's API - shown
+// through the generic fmtNumber() that reads as a bare, unlabeled "0.60".
+// Render them as what they actually are: the % of players who came back.
+const PERCENT_METRICS = new Set(['retentionD1', 'retentionD7']);
+
+function fmtMetricValue(value, metricKey) {
+  if (PERCENT_METRICS.has(metricKey)) {
+    if (typeof value !== 'number') return '—';
+    return `${(value * 100).toFixed(0)}%`;
+  }
+  return fmtNumber(value);
+}
+
 function fmtRelativeTime(isoString) {
   if (!isoString) return 'never';
   const then = new Date(isoString).getTime();
@@ -160,14 +173,14 @@ function buildIslandCell(row) {
   return td;
 }
 
-function buildBarCell(value, max, variant) {
+function buildBarCell(value, max, variant, metricKey) {
   const td = document.createElement('td');
   td.className = 'value';
   const wrap = document.createElement('div');
   wrap.className = 'bar-cell';
   const num = document.createElement('span');
   num.className = 'bar-num';
-  num.textContent = fmtNumber(value);
+  num.textContent = fmtMetricValue(value, metricKey);
   const track = document.createElement('div');
   track.className = 'bar-track';
   const fill = document.createElement('div');
@@ -196,7 +209,7 @@ function renderRankedTable(tbody, rows, metricKey, opts = {}) {
       tr.appendChild(tdRank);
     }
     tr.appendChild(buildIslandCell(row));
-    tr.appendChild(buildBarCell(row.latest?.[metricKey], max, opts.variant));
+    tr.appendChild(buildBarCell(row.latest?.[metricKey], max, opts.variant, metricKey));
     tbody.appendChild(tr);
   });
 }
@@ -451,14 +464,19 @@ async function loadMovers() {
 
       const tdChange = document.createElement('td');
       tdChange.className = 'mono-cell';
-      tdChange.textContent = `${fmtNumber(row.previous[moversMetric])} → ${fmtNumber(row.latest[moversMetric])}`;
+      tdChange.textContent = `${fmtMetricValue(row.previous[moversMetric], moversMetric)} → ${fmtMetricValue(row.latest[moversMetric], moversMetric)}`;
       tr.appendChild(tdChange);
 
       const tdDelta = document.createElement('td');
       const sign = row.delta > 0 ? '+' : '';
       const deltaSpan = document.createElement('span');
       deltaSpan.className = row.delta >= 0 ? 'delta-up' : 'delta-down';
-      deltaSpan.textContent = `${sign}${fmtNumber(row.delta)}`;
+      // For retention, row.delta is a fraction-point difference (0.04 = 4
+      // percentage points) - "pp" flags that explicitly so it's never read
+      // as the same kind of number as the relative-% badge next to it.
+      deltaSpan.textContent = PERCENT_METRICS.has(moversMetric)
+        ? `${sign}${(row.delta * 100).toFixed(0)}pp`
+        : `${sign}${fmtNumber(row.delta)}`;
       tdDelta.appendChild(deltaSpan);
       if (row.percentChange !== null) {
         const pctSpan = document.createElement('span');
@@ -480,7 +498,10 @@ async function loadMovers() {
 async function loadCreators() {
   try {
     const data = await fetchJson('/api/creators?limit=40');
-    $('creators-count').textContent = `${data.rows.length} ranked creator${data.rows.length === 1 ? '' : 's'}`;
+    const silent = data.totalCreators - data.creatorsWithData;
+    $('creators-count').textContent =
+      `${data.creatorsWithData} of ${data.totalCreators} creators have measurable traffic` +
+      (silent > 0 ? ` (${silent} tracked with none yet)` : '');
 
     const tbody = $('creators-body');
     clearChildren(tbody);
