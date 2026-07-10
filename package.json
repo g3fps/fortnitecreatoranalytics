@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/main.js",
+    "serve": "node src/main.js --no-crawl",
     "crawl": "node scripts/crawl-once.js",
     "test": "node --test scripts/smoke-test.js"
   },

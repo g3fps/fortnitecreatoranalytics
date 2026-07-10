@@ -18,17 +18,41 @@ const CATALOG_PAGES_PER_CYCLE = Number(process.env.CATALOG_PAGES_PER_CYCLE) || 5
 const MAX_METRICS_PER_CYCLE = Number(process.env.MAX_METRICS_PER_CYCLE) || 250000;
 const METRICS_DELAY_MS = Number(process.env.METRICS_DELAY_MS) || 80;
 
-const store = new Store(DATA_DIR);
+// Serve the dashboard without running the crawler. The reason this exists:
+// only one process may own the local JSONL files at a time (both this and
+// scripts/crawl-once.js hold the whole catalog in memory and rewrite
+// islands.json wholesale on persist, so concurrent writers silently clobber
+// each other's lastMetricsPolledAt bookkeeping). --no-crawl lets you watch
+// the dashboard while a long baseline sweep runs in another terminal.
+const NO_CRAWL = process.argv.includes('--no-crawl') || process.env.NO_CRAWL === '1';
+
+// With --no-crawl, prefer reading through Supabase: the local Store snapshots
+// every island into memory at construction and never reloads, so it would
+// freeze at whatever was on disk the moment this process booted - actively
+// misleading while another process is crawling. SupabaseStore queries live on
+// every request, so the dashboard tracks the running crawl. Falls back to the
+// (stale, read-only) local Store when Supabase isn't configured.
+let store;
+let storeLabel;
+if (NO_CRAWL && supabaseSync.isEnabled()) {
+  const { SupabaseStore } = require('./supabaseStore');
+  store = new SupabaseStore();
+  storeLabel = 'supabase (live)';
+} else {
+  store = new Store(DATA_DIR);
+  storeLabel = NO_CRAWL ? 'local files (read-only, frozen at boot)' : 'local files';
+}
 
 let crawlInFlight = false;
 let currentCycle = null; // live progress of the in-flight cycle, or null
 
 const app = createServer(store, {
-  crawlIntervalMs: CRAWL_INTERVAL_MS,
+  // Don't advertise a crawl schedule this process isn't keeping.
+  crawlIntervalMs: NO_CRAWL ? null : CRAWL_INTERVAL_MS,
   getCrawlProgress: () => ({ inProgress: crawlInFlight, current: currentCycle }),
 });
 const server = app.listen(PORT, () => {
-  console.log(`[server] listening on http://localhost:${PORT}`);
+  console.log(`[server] listening on http://localhost:${PORT} (reading from ${storeLabel})`);
 });
 
 // Populated via onProgress during a cycle with every island code that cycle
@@ -149,25 +173,39 @@ async function loop() {
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
 }
-loop();
 
 // Safety net only - logs if a cycle has been running suspiciously long
 // (possible hang), it does not intervene. Forcibly starting a second
 // concurrent cycle would be worse than a stalled one (duplicate in-flight
 // writes), so the only automatic recovery here is the crash-safety already
 // built into crawlOnce's periodic persistence.
-setInterval(() => {
-  if (crawlInFlight && currentCycle) {
-    const runningForMs = Date.now() - new Date(currentCycle.startedAt).getTime();
-    if (runningForMs > STALL_WARNING_MS) {
-      console.error(`[main] current cycle has been running for ${(runningForMs / 60000).toFixed(1)} min - possible stall`);
+let stallMonitor = null;
+function startStallMonitor() {
+  stallMonitor = setInterval(() => {
+    if (crawlInFlight && currentCycle) {
+      const runningForMs = Date.now() - new Date(currentCycle.startedAt).getTime();
+      if (runningForMs > STALL_WARNING_MS) {
+        console.error(`[main] current cycle has been running for ${(runningForMs / 60000).toFixed(1)} min - possible stall`);
+      }
     }
+  }, 10 * 60 * 1000);
+}
+
+if (NO_CRAWL) {
+  console.log('[main] --no-crawl: serving the dashboard only, not crawling.');
+  console.log('[main] safe to run alongside scripts/crawl-once.js.');
+  if (!supabaseSync.isEnabled()) {
+    console.warn('[main] Supabase not configured - serving a snapshot of the local files as they were at boot. It will not reflect a crawl running in another process.');
   }
-}, 10 * 60 * 1000);
+} else {
+  loop();
+  startStallMonitor();
+}
 
 function shutdown(signal) {
   console.log(`[main] received ${signal}, shutting down`);
   shuttingDown = true;
+  if (stallMonitor) clearInterval(stallMonitor);
   server.close(() => process.exit(0));
   // Force-exit if graceful close hangs (e.g. a keep-alive connection, or the
   // crawl loop is mid-request and doesn't yield before the process needs to go).

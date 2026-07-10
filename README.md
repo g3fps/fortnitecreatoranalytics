@@ -68,7 +68,8 @@ care which one they're talking to.
   most islands, in practice) only get rechecked on 1 in every N cycles, to
   catch revivals without wasting budget reconfirming they're still dead
 - `src/main.js` — long-running entrypoint: starts the HTTP server and the
-  daily crawl loop together
+  daily crawl loop together (`--no-crawl` serves the dashboard only, reading
+  live from Supabase, so it can run beside another crawling process)
 - `src/supabaseClient.js` / `src/supabaseSync.js` — write-through mirror of
   the crawler's local state into Supabase, best-effort (a Supabase hiccup
   never blocks the actual crawl)
@@ -113,6 +114,18 @@ npm start          # starts the server on :3742 and the daily crawl loop togethe
 Then open http://localhost:3742. Data starts accumulating from the moment
 you first run it.
 
+**Dashboard only, no crawler** — safe to run alongside a baseline sweep or
+any other crawling process:
+
+```
+npm run serve      # == node src/main.js --no-crawl
+```
+
+When Supabase is configured this reads live from Postgres, so it reflects a
+crawl running in another terminal. Without Supabase it falls back to the
+local files as they were when the process booted (and says so on startup) —
+the local `Store` loads the catalog into memory once and never reloads.
+
 **One-time full catalog baseline.** Run this once before relying on the
 daily loop, so most of the catalog is already classified hot/cold and the
 leaderboard isn't limited to whatever a few days of organic discovery
@@ -123,6 +136,9 @@ happened to reach.
 > they persist. Run both at once and the last writer wins — silently
 > clobbering the other's `lastMetricsPolledAt` bookkeeping. Ctrl+C the
 > server (it has a graceful shutdown handler) rather than force-killing it.
+>
+> Use `npm run serve` (`--no-crawl`) if you want the local dashboard up
+> while the sweep runs — it doesn't touch the local files at all.
 
 Run it in two stages, not one command. Catalog discovery is cheap (~100
 islands per request) while metrics polling is ~1 request *per island*, and
