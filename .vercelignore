@@ -1,0 +1,17 @@
+# The crawler's local working files (islands.json is 100MB+) must never be
+# uploaded to Vercel — the deployed serverless functions read from Supabase,
+# not from disk. Without this, `vercel deploy` uploads the whole data/ dir and
+# fails with "File size limit exceeded (100 MB)". These are gitignored too, but
+# .gitignore doesn't govern what the Vercel CLI uploads.
+data/
+
+# Crawler-only source + one-off scripts: the Vercel build only needs api/,
+# src/ (the modules api/index.js imports), public/, and package.json. The
+# crawler entrypoint and admin scripts never run on Vercel.
+scripts/
+db/
+
+# Dev-only
+node_modules/
+.env*
+*.log
