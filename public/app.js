@@ -93,7 +93,7 @@ function downloadCsv(filename, rows) {
 
 // ---------------------------------------------------------------- nav / views
 
-const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'data'];
+const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'watchlist', 'data'];
 const loaders = {
   overview: loadOverview,
   leaderboard: loadLeaderboard,
@@ -102,6 +102,7 @@ const loaders = {
   compare: () => {},
   browse: loadBrowse,
   explore: () => {},
+  watchlist: loadWatchlist,
   data: loadDataView,
 };
 
@@ -1299,6 +1300,28 @@ async function showDetail(code) {
       actions.appendChild(creatorBtn);
     }
 
+    // Track/untrack. Shown only when auth is available (Supabase configured).
+    // Clicking while logged out opens the sign-in modal rather than silently
+    // doing nothing.
+    if (supabaseReady()) {
+      const trackBtn = document.createElement('button');
+      trackBtn.className = 'btn-ghost';
+      trackBtn.setAttribute('data-track-code', island.code);
+      trackBtn.textContent = watchlistCodes.has(island.code) ? '★ Tracking (remove)' : '☆ Track this island';
+      trackBtn.addEventListener('click', async () => {
+        if (!currentUser) {
+          openAuthModal();
+          return;
+        }
+        if (watchlistCodes.has(island.code)) {
+          await untrackIsland(island.code);
+        } else {
+          await trackIsland(island.code);
+        }
+      });
+      actions.appendChild(trackBtn);
+    }
+
     // The sparkline metric follows whatever the leaderboard is currently
     // showing; label it, and be honest when there's only one point to plot.
     const oneReading = (historyResp.snapshots || []).length < 2;
@@ -1336,8 +1359,264 @@ async function showDetail(code) {
   });
 })();
 
+// ---------------------------------------------------------------- auth + watchlist
+
+// Optional feature layer: the whole dashboard works logged-out (all public
+// data). Signing in only unlocks the personal watchlist ("My Islands"),
+// stored per-user in Supabase and protected by row-level security - the
+// browser talks to Supabase directly with the public anon key; no
+// credentials or user data ever pass through this app's own API.
+let sbClient = null;
+let currentUser = null;
+let watchlistCodes = new Set(); // codes the signed-in user is tracking
+
+function supabaseReady() {
+  return Boolean(sbClient);
+}
+
+function initSupabase() {
+  const cfg = window.SUPABASE_CONFIG;
+  // window.supabase is the UMD global from /vendor/supabase.js.
+  if (!cfg || !cfg.url || !cfg.anonKey || !window.supabase) {
+    console.warn('Supabase not configured/loaded; auth features disabled.');
+    return;
+  }
+  sbClient = window.supabase.createClient(cfg.url, cfg.anonKey);
+  sbClient.auth.getSession().then(({ data }) => applyAuthState(data.session));
+  sbClient.auth.onAuthStateChange((_event, session) => applyAuthState(session));
+}
+
+async function applyAuthState(session) {
+  currentUser = session?.user || null;
+  const btn = $('auth-button');
+  document.querySelectorAll('.auth-only').forEach((el) => {
+    el.style.display = currentUser ? '' : 'none';
+  });
+  if (currentUser) {
+    btn.textContent = 'Sign out';
+    await refreshWatchlistCodes();
+  } else {
+    btn.textContent = 'Sign in';
+    watchlistCodes = new Set();
+    // If they were on My Islands when they signed out, bounce to Overview.
+    if ($('view-watchlist').classList.contains('active')) switchView('overview');
+  }
+  // Reflect track/untrack state anywhere it's currently shown.
+  updateTrackButtons();
+}
+
+async function refreshWatchlistCodes() {
+  if (!currentUser) return;
+  const { data, error } = await sbClient.from('user_watchlist').select('code');
+  if (error) {
+    console.error('watchlist load failed', error.message);
+    return;
+  }
+  watchlistCodes = new Set((data || []).map((r) => r.code));
+}
+
+async function trackIsland(code) {
+  if (!currentUser) {
+    openAuthModal();
+    return false;
+  }
+  const { error } = await sbClient.from('user_watchlist').insert({ user_id: currentUser.id, code });
+  if (error && !String(error.message).includes('duplicate')) {
+    console.error('track failed', error.message);
+    return false;
+  }
+  watchlistCodes.add(code);
+  updateTrackButtons();
+  return true;
+}
+
+async function untrackIsland(code) {
+  if (!currentUser) return;
+  const { error } = await sbClient.from('user_watchlist').delete().eq('user_id', currentUser.id).eq('code', code);
+  if (error) {
+    console.error('untrack failed', error.message);
+    return;
+  }
+  watchlistCodes.delete(code);
+  updateTrackButtons();
+}
+
+// Re-label any visible track/untrack buttons (drawer) to match current state.
+function updateTrackButtons() {
+  document.querySelectorAll('[data-track-code]').forEach((btn) => {
+    const code = btn.getAttribute('data-track-code');
+    const tracked = watchlistCodes.has(code);
+    btn.textContent = tracked ? '★ Tracking (remove)' : '☆ Track this island';
+  });
+}
+
+// ---- auth modal ----
+
+let authMode = 'signin'; // or 'signup'
+
+function openAuthModal() {
+  $('auth-msg').textContent = '';
+  $('auth-msg').className = 'auth-msg';
+  $('auth-backdrop').classList.add('open');
+  $('auth-modal').classList.add('open');
+  $('auth-email').focus();
+}
+function closeAuthModal() {
+  $('auth-backdrop').classList.remove('open');
+  $('auth-modal').classList.remove('open');
+}
+function setAuthMode(mode) {
+  authMode = mode;
+  const isSignup = mode === 'signup';
+  $('auth-title').textContent = isSignup ? 'Create account' : 'Sign in';
+  $('auth-submit').textContent = isSignup ? 'Create account' : 'Sign in';
+  $('auth-toggle-text').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
+  $('auth-toggle-btn').textContent = isSignup ? 'Sign in' : 'Create one';
+  $('auth-password').autocomplete = isSignup ? 'new-password' : 'current-password';
+}
+
+function wireAuthUi() {
+  $('auth-button').addEventListener('click', async () => {
+    if (currentUser) {
+      await sbClient.auth.signOut();
+    } else {
+      setAuthMode('signin');
+      openAuthModal();
+    }
+  });
+  $('auth-close').addEventListener('click', closeAuthModal);
+  $('auth-backdrop').addEventListener('click', closeAuthModal);
+  $('auth-toggle-btn').addEventListener('click', () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin'));
+  $('watchlist-signin-cta').addEventListener('click', () => {
+    setAuthMode('signin');
+    openAuthModal();
+  });
+
+  $('auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!supabaseReady()) return;
+    const email = $('auth-email').value.trim();
+    const password = $('auth-password').value;
+    const msg = $('auth-msg');
+    msg.className = 'auth-msg';
+    msg.textContent = 'Working…';
+    $('auth-submit').disabled = true;
+    try {
+      if (authMode === 'signup') {
+        const { error } = await sbClient.auth.signUp({ email, password });
+        if (error) throw error;
+        // Depending on the project's email-confirmation setting, the user may
+        // be signed in immediately or need to confirm via email first.
+        const { data } = await sbClient.auth.getSession();
+        if (data.session) {
+          msg.className = 'auth-msg success';
+          msg.textContent = 'Account created — you\'re signed in.';
+          setTimeout(closeAuthModal, 900);
+        } else {
+          msg.className = 'auth-msg success';
+          msg.textContent = 'Check your email to confirm your account, then sign in.';
+        }
+      } else {
+        const { error } = await sbClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        msg.className = 'auth-msg success';
+        msg.textContent = 'Signed in.';
+        setTimeout(closeAuthModal, 500);
+      }
+    } catch (err) {
+      msg.className = 'auth-msg error';
+      msg.textContent = err.message || 'Something went wrong.';
+    } finally {
+      $('auth-submit').disabled = false;
+    }
+  });
+}
+
+// ---- My Islands view ----
+
+let lastWatchlistRows = [];
+
+async function loadWatchlist() {
+  const signedOut = $('watchlist-signedout');
+  const panel = $('watchlist-panel');
+  if (!currentUser) {
+    signedOut.style.display = 'block';
+    panel.style.display = 'none';
+    $('watchlist-count').textContent = '';
+    return;
+  }
+  signedOut.style.display = 'none';
+  panel.style.display = 'block';
+
+  await refreshWatchlistCodes();
+  const codes = [...watchlistCodes];
+  $('watchlist-count').textContent = `${codes.length} island${codes.length === 1 ? '' : 's'} tracked`;
+
+  const tbody = $('watchlist-body');
+  clearChildren(tbody);
+  const empty = $('watchlist-empty');
+  if (!codes.length) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Fetch each island's current stats through the public API (up to a
+  // sensible cap - a personal watchlist isn't going to be thousands long).
+  const islands = await Promise.all(
+    codes.slice(0, 100).map((code) => fetchJson(`/api/islands/${encodeURIComponent(code)}`).catch(() => null))
+  );
+  lastWatchlistRows = islands.filter(Boolean);
+
+  for (const isl of islands) {
+    if (!isl) continue;
+    const tr = document.createElement('tr');
+    tr.className = 'clickable';
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('.watchlist-remove')) return;
+      showDetail(isl.code);
+    });
+    tr.appendChild(buildIslandCell(isl));
+
+    const tdCcu = document.createElement('td');
+    tdCcu.className = 'mono-cell';
+    tdCcu.textContent = fmtNumber(isl.latest?.peakCCU);
+    tr.appendChild(tdCcu);
+
+    const tdUp = document.createElement('td');
+    tdUp.className = 'mono-cell';
+    tdUp.textContent = fmtNumber(isl.latest?.uniquePlayers);
+    tr.appendChild(tdUp);
+
+    const tdRemove = document.createElement('td');
+    const rm = document.createElement('button');
+    rm.className = 'watchlist-remove';
+    rm.textContent = 'Remove';
+    rm.addEventListener('click', async () => {
+      await untrackIsland(isl.code);
+      loadWatchlist();
+    });
+    tdRemove.appendChild(rm);
+    tr.appendChild(tdRemove);
+
+    tbody.appendChild(tr);
+  }
+}
+
+$('watchlist-export').addEventListener('click', () => {
+  downloadCsv('my-islands.csv', lastWatchlistRows.map((r) => ({
+    code: r.code,
+    title: r.title || '',
+    creatorCode: r.creatorCode || '',
+    peakCCU: r.latest?.peakCCU ?? '',
+    uniquePlayers: r.latest?.uniquePlayers ?? '',
+  })));
+});
+
 // ---------------------------------------------------------------- boot
 
+initSupabase();
+wireAuthUi();
 refreshStatus();
 loadTagCloud();
 // Honor a deep-link hash on load (e.g. someone shared /#leaderboard), else

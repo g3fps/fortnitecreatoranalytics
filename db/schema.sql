@@ -91,6 +91,37 @@ create table if not exists crawl_log (
 
 create index if not exists crawl_log_created_at_idx on crawl_log (created_at desc);
 
+-- User watchlists ("My Islands"). Each row ties a signed-in user (Supabase
+-- Auth) to an island they want to track. The browser reads/writes this table
+-- directly via the anon key + RLS below - no server code involved, which is
+-- the idiomatic Supabase pattern for per-user data. auth.users is managed by
+-- Supabase Auth; on delete cascade cleans up if a user is removed.
+create table if not exists user_watchlist (
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  code        text not null references islands (code) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (user_id, code)
+);
+
+create index if not exists user_watchlist_user_idx on user_watchlist (user_id);
+
+alter table user_watchlist enable row level security;
+
+-- A user can see and modify ONLY their own watchlist rows. auth.uid() is the
+-- id of the currently authenticated user (null for anon), so these policies
+-- deny everything to logged-out callers and cross-user access alike.
+drop policy if exists "own watchlist select" on user_watchlist;
+create policy "own watchlist select" on user_watchlist for select using (auth.uid() = user_id);
+drop policy if exists "own watchlist insert" on user_watchlist;
+create policy "own watchlist insert" on user_watchlist for insert with check (auth.uid() = user_id);
+drop policy if exists "own watchlist delete" on user_watchlist;
+create policy "own watchlist delete" on user_watchlist for delete using (auth.uid() = user_id);
+
+grant select, insert, delete on user_watchlist to authenticated;
+-- service_role bypasses RLS and isn't used for this table by app code, but
+-- grant it too so admin/debug scripts can inspect watchlists if needed.
+grant all on user_watchlist to service_role;
+
 -- Row Level Security: this project has no end-user auth, and all writes come
 -- from the crawler using the service_role key (which bypasses RLS entirely).
 -- Enable RLS with a read-only policy for the anon/public key so the tables

@@ -23,12 +23,16 @@
     <button class="nav-item" data-view="compare">Compare</button>
     <button class="nav-item" data-view="browse">Browse<span class="nav-count" id="nav-browse-count"></span></button>
     <button class="nav-item" data-view="explore">Explore</button>
+    <button class="nav-item auth-only" data-view="watchlist" style="display:none;">My Islands</button>
     <button class="nav-item" data-view="data">About Data</button>
   </nav>
 
-  <div class="crawl-status" id="crawl-status">
-    <span class="status-dot live" id="status-dot"></span>
-    <span id="status-text">connecting…</span>
+  <div class="topbar-right">
+    <div class="crawl-status" id="crawl-status">
+      <span class="status-dot live" id="status-dot"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+    <button class="btn-ghost" id="auth-button">Sign in</button>
   </div>
 </header>
 
@@ -238,6 +242,37 @@
       <div class="empty-state" id="compare-empty">Search above and add at least 2 islands to compare.</div>
     </section>
 
+    <!-- ===================== MY ISLANDS (WATCHLIST) ===================== -->
+    <section class="view" id="view-watchlist">
+      <div class="topbar">
+        <h1>My Islands</h1>
+        <span class="sub" id="watchlist-count">—</span>
+      </div>
+
+      <div class="panel" id="watchlist-signedout" style="display:none;">
+        <h2>Sign in to track your islands</h2>
+        <p class="panel-sub">Save any island to your personal watchlist to keep an eye on your own maps and your competitors — your list stays with your account.</p>
+        <button class="tab-btn active" id="watchlist-signin-cta">Sign in / Create account</button>
+      </div>
+
+      <div class="panel" id="watchlist-panel" style="display:none;">
+        <div class="panel-head">
+          <div class="titles">
+            <h2>Tracked islands</h2>
+            <p class="panel-sub">Latest stats for every island you're following. Add more from any island's detail view, or by looking one up in Explore.</p>
+          </div>
+          <button class="btn-ghost" id="watchlist-export">⇩ Export CSV</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Island</th><th>Peak CCU</th><th>Unique Players</th><th></th></tr></thead>
+            <tbody id="watchlist-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="watchlist-empty" style="display:none;">You're not tracking any islands yet. Find one on the Leaderboard or in Explore and click "Track".</div>
+      </div>
+    </section>
+
     <!-- ===================== BROWSE ===================== -->
     <section class="view" id="view-browse">
       <div class="topbar">
@@ -389,4 +424,26 @@
   </div>
 </aside>
 
+<!-- Auth modal -->
+<div class="modal-backdrop" id="auth-backdrop"></div>
+<div class="modal" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+  <div class="modal-head">
+    <h3 id="auth-title">Sign in</h3>
+    <button class="close-btn" id="auth-close">close</button>
+  </div>
+  <p class="panel-sub" id="auth-blurb">Sign in to save islands to your personal watchlist. Free, and your list stays with your account.</p>
+  <form id="auth-form">
+    <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required style="width:100%; margin-bottom:8px;">
+    <input type="password" id="auth-password" placeholder="Password (at least 6 characters)" autocomplete="current-password" required minlength="6" style="width:100%; margin-bottom:8px;">
+    <button type="submit" class="tab-btn active" id="auth-submit" style="width:100%;">Sign in</button>
+  </form>
+  <div class="auth-msg" id="auth-msg"></div>
+  <div class="auth-toggle">
+    <span id="auth-toggle-text">Don't have an account?</span>
+    <button class="link-btn" id="auth-toggle-btn">Create one</button>
+  </div>
+</div>
+
+<script src="/config.js"></script>
+<script src="/vendor/supabase.js"></script>
 <script src="/app.js"></script>
