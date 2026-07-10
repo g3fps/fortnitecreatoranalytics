@@ -105,18 +105,30 @@ const loaders = {
   health: loadHealth,
 };
 
-function switchView(name) {
+function switchView(name, { updateHash = true } = {}) {
+  if (!views.includes(name)) name = 'overview';
   for (const v of views) {
     $(`view-${v}`).classList.toggle('active', v === name);
   }
   document.querySelectorAll('.nav-item').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === name);
   });
+  // Reflect the view in the URL hash so a given screen is linkable/shareable
+  // and survives a refresh - important for a tool people are meant to send
+  // each other ("look at this leaderboard").
+  if (updateHash && `#${name}` !== window.location.hash) {
+    history.replaceState(null, '', `#${name}`);
+  }
   loaders[name]?.();
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
+});
+
+window.addEventListener('hashchange', () => {
+  const name = window.location.hash.replace(/^#/, '');
+  if (views.includes(name)) switchView(name, { updateHash: false });
 });
 
 $('overview-see-all').addEventListener('click', () => switchView('leaderboard'));
@@ -1401,8 +1413,15 @@ async function showDetail(code) {
 // ---------------------------------------------------------------- boot
 
 refreshStatus();
-loadOverview();
 loadTagCloud();
+// Honor a deep-link hash on load (e.g. someone shared /#leaderboard), else
+// land on Overview. Always loads Overview's data too so the nav counts/status
+// are populated regardless of which view is shown first.
+loadOverview();
+const initialView = window.location.hash.replace(/^#/, '');
+if (views.includes(initialView) && initialView !== 'overview') {
+  switchView(initialView, { updateHash: false });
+}
 setInterval(refreshStatus, 15000);
 setInterval(() => {
   const active = views.find((v) => $(`view-${v}`).classList.contains('active'));
