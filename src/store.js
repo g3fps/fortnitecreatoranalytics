@@ -121,6 +121,7 @@ class Store {
       // and must not clobber metrics-polling bookkeeping set by the crawler's
       // metrics phase.
       lastMetricsPolledAt: existing?.lastMetricsPolledAt || null,
+      pollAttempts: existing?.pollAttempts || 0,
     };
     this.islands.set(island.code, record);
     return record;
@@ -154,6 +155,37 @@ class Store {
     if (rec) rec.lastMetricsPolledAt = new Date().toISOString();
   }
 
+  // Storage-bounding, not deletion: once an island has been polled several
+  // times and never once shown data, null out the fields that cost the most
+  // (title/category/createdIn - typically the longest strings on the
+  // record) but keep the row itself, its code, creatorCode, and tags.
+  //
+  // Deleting the row outright was the first idea, but it would quietly
+  // corrupt exactly the stats this project is built to keep honest:
+  // islandsTracked would stop meaning "the real size of Epic's catalog",
+  // getTagCounts() would lose those islands' tags entirely (survivorship
+  // bias in the one metric explicitly designed to represent the *whole*
+  // catalog, dead islands included), and a creator's islandCount would
+  // shrink to look more successful than they actually are. Keeping the row
+  // with tags/creatorCode intact preserves all three; only the
+  // human-readable metadata (which nobody queries in aggregate) is dropped.
+  //
+  // Not permanent: if the island resurfaces in a catalog page, upsertIsland
+  // repopulates title/category/createdIn from that fresh response, same as
+  // any other island.
+  degradeIfConfirmedDead(code, { minAttempts = 3 } = {}) {
+    const rec = this.islands.get(code);
+    if (!rec) return false;
+    if ((rec.pollAttempts || 0) < minAttempts) return false;
+    const hist = this.history.get(code);
+    if (hist && hist.length > 0) return false;
+    if (rec.title === null && rec.category === null && rec.createdIn === null) return false; // already degraded
+    rec.title = null;
+    rec.category = null;
+    rec.createdIn = null;
+    return true;
+  }
+
   getIsland(code) {
     const meta = this.islands.get(code);
     if (!meta) return null;
@@ -180,9 +212,11 @@ class Store {
     return results.slice(0, limit);
   }
 
-  getLeaderboard(metric = 'peakCCU', limit = 25) {
+  getLeaderboard(metric = 'peakCCU', limit = 25, { tag = null, creatorCode = null } = {}) {
     const rows = [];
     for (const meta of this.islands.values()) {
+      if (tag && !(meta.tags || []).includes(tag)) continue;
+      if (creatorCode && meta.creatorCode !== creatorCode) continue;
       const hist = this.history.get(meta.code) || [];
       const latest = hist[hist.length - 1];
       if (!latest || latest[metric] === null || latest[metric] === undefined) continue;
@@ -197,9 +231,11 @@ class Store {
   // since it exposes no history at all. Only includes islands with at least
   // two captured readings, which today is a small fraction of the catalog
   // and grows every cycle.
-  getMovers(metric = 'peakCCU', limit = 20, direction = 'up') {
+  getMovers(metric = 'peakCCU', limit = 20, direction = 'up', { tag = null, creatorCode = null } = {}) {
     const rows = [];
     for (const meta of this.islands.values()) {
+      if (tag && !(meta.tags || []).includes(tag)) continue;
+      if (creatorCode && meta.creatorCode !== creatorCode) continue;
       const hist = this.history.get(meta.code);
       if (!hist || hist.length < 2) continue;
       const latest = hist[hist.length - 1];

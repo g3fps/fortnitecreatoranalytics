@@ -24,6 +24,17 @@ function ah(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
+// Shared by /api/leaderboard, /api/movers, /api/browse - a non-empty string
+// or null, never '' (which would otherwise match every island via the
+// downstream .includes()/.eq() checks).
+function parseFilterParams(query) {
+  const { tag, creatorCode } = query;
+  return {
+    tag: typeof tag === 'string' && tag ? tag : null,
+    creatorCode: typeof creatorCode === 'string' && creatorCode ? creatorCode : null,
+  };
+}
+
 function createServer(store, options = {}) {
   const { crawlIntervalMs = null, getCrawlProgress = () => ({ inProgress: false, current: null }) } = options;
   const app = express();
@@ -78,7 +89,8 @@ function createServer(store, options = {}) {
         : 'peakCCU';
       const limitRaw = Number(req.query.limit);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 25;
-      res.json({ metric, rows: await store.getLeaderboard(metric, limit) });
+      const filters = parseFilterParams(req.query);
+      res.json({ metric, ...filters, rows: await store.getLeaderboard(metric, limit, filters) });
     })
   );
 
@@ -91,7 +103,8 @@ function createServer(store, options = {}) {
       const direction = req.query.direction === 'down' ? 'down' : 'up';
       const limitRaw = Number(req.query.limit);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 20;
-      res.json({ metric, direction, rows: await store.getMovers(metric, limit, direction) });
+      const filters = parseFilterParams(req.query);
+      res.json({ metric, direction, ...filters, rows: await store.getMovers(metric, limit, direction, filters) });
     })
   );
 
@@ -117,7 +130,7 @@ function createServer(store, options = {}) {
   app.get(
     '/api/browse',
     ah(async (req, res) => {
-      const { tag, creatorCode, sort } = req.query;
+      const { sort } = req.query;
       const dir = req.query.dir === 'desc' ? 'desc' : 'asc';
       const hasDataRaw = req.query.hasData;
       const hasData = hasDataRaw === 'true' ? true : hasDataRaw === 'false' ? false : null;
@@ -126,8 +139,7 @@ function createServer(store, options = {}) {
       const allowedSort = new Set(['title', 'firstSeenAt', ...ALLOWED_METRICS]);
       res.json(
         await store.browseIslands({
-          tag: typeof tag === 'string' && tag ? tag : null,
-          creatorCode: typeof creatorCode === 'string' && creatorCode ? creatorCode : null,
+          ...parseFilterParams(req.query),
           hasData,
           sort: typeof sort === 'string' && allowedSort.has(sort) ? sort : 'title',
           dir,

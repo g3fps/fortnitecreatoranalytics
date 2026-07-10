@@ -55,6 +55,11 @@ async function crawlOnce(store, opts = {}) {
     // this share goes to cold islands on a cycle where they're included at
     // all - the rest goes to "unknown" (never-polled) islands.
     coldShareOnColdCycle = 0.5,
+    // Islands polled this many times with zero data ever get their
+    // metadata degraded to bound storage cost - see
+    // Store.degradeIfConfirmedDead for what "degraded" means and why it's
+    // not deletion.
+    degradeAfterAttempts = 3,
     onProgress = () => {},
   } = opts;
 
@@ -200,6 +205,7 @@ async function crawlOnce(store, opts = {}) {
 
     result.metricsPolled++;
     island.lastMetricsPolledAt = new Date().toISOString();
+    island.pollAttempts = (island.pollAttempts || 0) + 1;
 
     if (metrics === null) {
       result.metricsNotFound++;
@@ -207,6 +213,12 @@ async function crawlOnce(store, opts = {}) {
       const { written } = store.addSnapshot(island.code, metrics);
       if (written) result.metricsWritten++;
     }
+
+    // Bound storage cost from islands that are never going to show data,
+    // without deleting them (see Store.degradeIfConfirmedDead for why that
+    // matters). Checked every poll, not just this one - degradeAfterAttempts
+    // isn't necessarily reached on the attempt that just ran.
+    store.degradeIfConfirmedDead(island.code, { minAttempts: degradeAfterAttempts });
 
     onProgress({
       phase: 'metrics',

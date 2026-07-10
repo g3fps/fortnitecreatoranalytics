@@ -93,12 +93,13 @@ function downloadCsv(filename, rows) {
 
 // ---------------------------------------------------------------- nav / views
 
-const views = ['overview', 'leaderboard', 'movers', 'creators', 'browse', 'explore', 'health'];
+const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'health'];
 const loaders = {
   overview: loadOverview,
   leaderboard: loadLeaderboard,
   movers: loadMovers,
   creators: loadCreators,
+  compare: () => {},
   browse: loadBrowse,
   explore: () => {},
   health: loadHealth,
@@ -380,6 +381,7 @@ async function loadOverview() {
 
 let currentMetric = 'peakCCU';
 let lastLeaderboardRows = [];
+const leaderboardFilters = { tag: '', creatorCode: '' };
 
 document.querySelectorAll('#metric-tabs .tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -390,15 +392,53 @@ document.querySelectorAll('#metric-tabs .tab-btn').forEach((btn) => {
   });
 });
 
+function leaderboardFilterQuery() {
+  const params = new URLSearchParams({ metric: currentMetric, limit: '40' });
+  if (leaderboardFilters.tag) params.set('tag', leaderboardFilters.tag);
+  if (leaderboardFilters.creatorCode) params.set('creatorCode', leaderboardFilters.creatorCode);
+  return params.toString();
+}
+
+function refreshLeaderboardFilterUi() {
+  const active = Boolean(leaderboardFilters.tag || leaderboardFilters.creatorCode);
+  $('leaderboard-clear-filters').style.display = active ? '' : 'none';
+}
+
+$('leaderboard-tag-filter').addEventListener('change', (e) => {
+  leaderboardFilters.tag = e.target.value;
+  refreshLeaderboardFilterUi();
+  loadLeaderboard();
+});
+let leaderboardCreatorDebounce = null;
+$('leaderboard-creator-filter').addEventListener('input', (e) => {
+  clearTimeout(leaderboardCreatorDebounce);
+  leaderboardCreatorDebounce = setTimeout(() => {
+    leaderboardFilters.creatorCode = e.target.value.trim();
+    refreshLeaderboardFilterUi();
+    loadLeaderboard();
+  }, 300);
+});
+$('leaderboard-clear-filters').addEventListener('click', () => {
+  leaderboardFilters.tag = '';
+  leaderboardFilters.creatorCode = '';
+  $('leaderboard-tag-filter').value = '';
+  $('leaderboard-creator-filter').value = '';
+  refreshLeaderboardFilterUi();
+  loadLeaderboard();
+});
+
 async function loadLeaderboard() {
   try {
-    const data = await fetchJson(`/api/leaderboard?metric=${encodeURIComponent(currentMetric)}&limit=40`);
+    const data = await fetchJson(`/api/leaderboard?${leaderboardFilterQuery()}`);
     lastLeaderboardRows = data.rows;
     $('leaderboard-count').textContent = `${data.rows.length} ranked island${data.rows.length === 1 ? '' : 's'}`;
     const empty = $('leaderboard-empty');
+    const filtered = Boolean(leaderboardFilters.tag || leaderboardFilters.creatorCode);
     if (!data.rows.length) {
       empty.style.display = 'block';
-      empty.textContent = 'No islands have live data for this metric yet — coverage grows every crawl cycle.';
+      empty.textContent = filtered
+        ? 'No islands with live data match these filters — try a different tag or creator.'
+        : 'No islands have live data for this metric yet — coverage grows every crawl cycle.';
     } else {
       empty.style.display = 'none';
     }
@@ -417,6 +457,7 @@ $('leaderboard-export').addEventListener('click', () => {
 let moversMetric = 'peakCCU';
 let moversDirection = 'up';
 let lastMoversRows = [];
+const moversFilters = { tag: '', creatorCode: '' };
 
 document.querySelectorAll('#movers-metric-tabs .tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -434,9 +475,44 @@ document.querySelectorAll('#movers-direction-tabs .tab-btn').forEach((btn) => {
   });
 });
 
+function moversFilterQuery() {
+  const params = new URLSearchParams({ metric: moversMetric, direction: moversDirection, limit: '30' });
+  if (moversFilters.tag) params.set('tag', moversFilters.tag);
+  if (moversFilters.creatorCode) params.set('creatorCode', moversFilters.creatorCode);
+  return params.toString();
+}
+
+function refreshMoversFilterUi() {
+  const active = Boolean(moversFilters.tag || moversFilters.creatorCode);
+  $('movers-clear-filters').style.display = active ? '' : 'none';
+}
+
+$('movers-tag-filter').addEventListener('change', (e) => {
+  moversFilters.tag = e.target.value;
+  refreshMoversFilterUi();
+  loadMovers();
+});
+let moversCreatorDebounce = null;
+$('movers-creator-filter').addEventListener('input', (e) => {
+  clearTimeout(moversCreatorDebounce);
+  moversCreatorDebounce = setTimeout(() => {
+    moversFilters.creatorCode = e.target.value.trim();
+    refreshMoversFilterUi();
+    loadMovers();
+  }, 300);
+});
+$('movers-clear-filters').addEventListener('click', () => {
+  moversFilters.tag = '';
+  moversFilters.creatorCode = '';
+  $('movers-tag-filter').value = '';
+  $('movers-creator-filter').value = '';
+  refreshMoversFilterUi();
+  loadMovers();
+});
+
 async function loadMovers() {
   try {
-    const data = await fetchJson(`/api/movers?metric=${encodeURIComponent(moversMetric)}&direction=${moversDirection}&limit=30`);
+    const data = await fetchJson(`/api/movers?${moversFilterQuery()}`);
     lastMoversRows = data.rows;
     $('movers-count').textContent = `${data.rows.length} island${data.rows.length === 1 ? '' : 's'} with 2+ readings`;
 
@@ -445,7 +521,9 @@ async function loadMovers() {
     const empty = $('movers-empty');
     if (!data.rows.length) {
       empty.style.display = 'block';
-      empty.textContent = 'No islands have 2 captured readings yet for this metric — check back after the next crawl cycle.';
+      empty.textContent = moversFilters.tag || moversFilters.creatorCode
+        ? 'No islands with 2+ readings match these filters — try a different tag or creator.'
+        : 'No islands have 2 captured readings yet for this metric — check back after the next crawl cycle.';
       return;
     }
     empty.style.display = 'none';
@@ -557,14 +635,217 @@ async function loadCreators() {
   }
 }
 
+// ---------------------------------------------------------------- compare
+
+const COMPARE_MAX = 3;
+const COMPARE_METRICS = [
+  'peakCCU',
+  'uniquePlayers',
+  'minutesPlayed',
+  'averageMinutesPerPlayer',
+  'plays',
+  'favorites',
+  'recommendations',
+  'retentionD1',
+  'retentionD7',
+];
+let compareCodes = [];
+let compareSearchDebounce = null;
+
+$('compare-search-input').addEventListener('input', (e) => {
+  clearTimeout(compareSearchDebounce);
+  const q = e.target.value.trim();
+  const resultsBox = $('compare-search-results');
+  if (!q) {
+    clearChildren(resultsBox);
+    return;
+  }
+  compareSearchDebounce = setTimeout(async () => {
+    try {
+      const rows = await fetchJson(`/api/islands?search=${encodeURIComponent(q)}&limit=8`);
+      clearChildren(resultsBox);
+      for (const row of rows) {
+        const alreadyAdded = compareCodes.includes(row.code);
+        const atMax = compareCodes.length >= COMPARE_MAX;
+        const item = document.createElement('div');
+        item.className = 'compare-result-item' + (alreadyAdded || atMax ? ' disabled' : '');
+
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = row.title || '(untitled)';
+        const code = document.createElement('span');
+        code.className = 'code';
+        code.textContent = row.code;
+        name.appendChild(code);
+
+        const hint = document.createElement('span');
+        hint.className = 'add-hint';
+        hint.textContent = alreadyAdded ? 'already added' : atMax ? `max ${COMPARE_MAX} reached` : '+ add';
+
+        item.appendChild(name);
+        item.appendChild(hint);
+        if (!alreadyAdded && !atMax) {
+          item.addEventListener('click', () => addToCompare(row.code));
+        }
+        resultsBox.appendChild(item);
+      }
+    } catch (err) {
+      console.error('compare search failed', err);
+    }
+  }, 250);
+});
+
+async function addToCompare(code) {
+  if (compareCodes.includes(code) || compareCodes.length >= COMPARE_MAX) return;
+  compareCodes.push(code);
+  $('compare-search-input').value = '';
+  clearChildren($('compare-search-results'));
+  await renderCompare();
+}
+
+function removeFromCompare(code) {
+  compareCodes = compareCodes.filter((c) => c !== code);
+  renderCompare();
+}
+
+$('compare-clear').addEventListener('click', () => {
+  compareCodes = [];
+  renderCompare();
+});
+
+function buildCompareRow(label, cells) {
+  const tr = document.createElement('tr');
+  const labelTd = document.createElement('td');
+  labelTd.className = 'compare-row-label';
+  labelTd.textContent = label;
+  tr.appendChild(labelTd);
+  cells.forEach((cell) => tr.appendChild(cell));
+  return tr;
+}
+
+async function renderCompare() {
+  const panel = $('compare-panel');
+  const empty = $('compare-empty');
+
+  if (compareCodes.length < 2) {
+    panel.style.display = 'none';
+    empty.style.display = 'block';
+    empty.textContent = compareCodes.length === 1
+      ? 'Add one more island to see a comparison.'
+      : 'Search above and add at least 2 islands to compare.';
+    return;
+  }
+
+  let islands;
+  try {
+    islands = await Promise.all(compareCodes.map((code) => fetchJson(`/api/islands/${encodeURIComponent(code)}`)));
+  } catch (err) {
+    console.error('renderCompare failed', err);
+    empty.style.display = 'block';
+    empty.textContent = 'Failed to load one or more islands — try again.';
+    panel.style.display = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  panel.style.display = 'block';
+
+  const head = $('compare-head');
+  clearChildren(head);
+  const metricTh = document.createElement('th');
+  metricTh.textContent = 'Metric';
+  head.appendChild(metricTh);
+  islands.forEach((isl) => {
+    const th = document.createElement('th');
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'compare-col-title';
+    titleDiv.textContent = isl.title || '(untitled)';
+    const codeDiv = document.createElement('div');
+    codeDiv.className = 'compare-col-code';
+    codeDiv.textContent = isl.code;
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-ghost';
+    removeBtn.style.fontSize = '10.5px';
+    removeBtn.style.padding = '3px 8px';
+    removeBtn.textContent = '✕ Remove';
+    removeBtn.addEventListener('click', () => removeFromCompare(isl.code));
+    th.appendChild(titleDiv);
+    th.appendChild(codeDiv);
+    th.appendChild(removeBtn);
+    head.appendChild(th);
+  });
+
+  const body = $('compare-body');
+  clearChildren(body);
+
+  const creatorCells = islands.map((isl) => {
+    const td = document.createElement('td');
+    td.textContent = isl.creatorCode || '—';
+    return td;
+  });
+  body.appendChild(buildCompareRow('Creator', creatorCells));
+
+  const discoveredCells = islands.map((isl) => {
+    const td = document.createElement('td');
+    td.className = 'mono-cell';
+    td.textContent = fmtRelativeTime(isl.firstSeenAt);
+    return td;
+  });
+  body.appendChild(buildCompareRow('First seen', discoveredCells));
+
+  for (const metric of COMPARE_METRICS) {
+    const values = islands.map((isl) => (isl.latest ? isl.latest[metric] : null));
+    const numericValues = values.filter((v) => typeof v === 'number');
+    // Only mark a winner when there's an actual difference to show - with
+    // one island, or several tied, "highlighting" one is just noise.
+    const hasSpread = numericValues.length > 1 && numericValues.some((v) => v !== numericValues[0]);
+    const max = hasSpread ? Math.max(...numericValues) : null;
+
+    const cells = values.map((v) => {
+      const td = document.createElement('td');
+      td.className = 'mono-cell';
+      td.textContent = fmtMetricValue(v, metric);
+      if (max !== null && v === max) td.classList.add('compare-winner');
+      return td;
+    });
+    body.appendChild(buildCompareRow(METRIC_LABELS[metric], cells));
+  }
+
+  const tagsCells = islands.map((isl) => {
+    const td = document.createElement('td');
+    td.textContent = (isl.tags || []).join(', ') || '—';
+    return td;
+  });
+  body.appendChild(buildCompareRow('Tags', tagsCells));
+}
+
 // ---------------------------------------------------------------- browse
 
 const browseState = { tag: null, creatorCode: null, hasData: '', sort: 'title', dir: 'asc', page: 1, pageSize: 40 };
 let lastBrowseRows = [];
 
+let allTags = [];
+
+function populateTagSelect(select) {
+  clearChildren(select);
+  const allOpt = document.createElement('option');
+  allOpt.value = '';
+  allOpt.textContent = 'All genres/tags';
+  select.appendChild(allOpt);
+  for (const t of allTags) {
+    const opt = document.createElement('option');
+    opt.value = t.tag;
+    opt.textContent = `${t.tag} (${t.count.toLocaleString()})`;
+    select.appendChild(opt);
+  }
+}
+
 async function loadTagCloud() {
   try {
     const data = await fetchJson('/api/tags?limit=24');
+    allTags = data.tags;
+    populateTagSelect($('leaderboard-tag-filter'));
+    populateTagSelect($('movers-tag-filter'));
     const cloud = $('tag-cloud');
     clearChildren(cloud);
     for (const t of data.tags) {
@@ -1014,6 +1295,28 @@ async function showDetail(code) {
   }
 }
 
+// ---------------------------------------------------------------- intro banner
+
+(function initIntroBanner() {
+  const DISMISS_KEY = 'introBannerDismissed';
+  const banner = $('intro-banner');
+  if (!banner) return;
+  try {
+    if (localStorage.getItem(DISMISS_KEY) === '1') banner.style.display = 'none';
+  } catch (err) {
+    // localStorage can throw in locked-down/private-browsing contexts -
+    // worst case the banner just doesn't remember being dismissed.
+  }
+  $('intro-dismiss').addEventListener('click', () => {
+    banner.style.display = 'none';
+    try {
+      localStorage.setItem(DISMISS_KEY, '1');
+    } catch (err) {
+      // Non-fatal - see above.
+    }
+  });
+})();
+
 // ---------------------------------------------------------------- boot
 
 refreshStatus();
@@ -1022,5 +1325,5 @@ loadTagCloud();
 setInterval(refreshStatus, 15000);
 setInterval(() => {
   const active = views.find((v) => $(`view-${v}`).classList.contains('active'));
-  if (active && active !== 'explore' && active !== 'browse') loaders[active]();
+  if (active && active !== 'explore' && active !== 'browse' && active !== 'compare') loaders[active]();
 }, 30000);

@@ -1,4 +1,11 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Island Ledger — Fortnite Creative Analytics</title>
+<meta name="description" content="Competitive intelligence for Fortnite Creative / UEFN island creators. Leaderboards, movers, and per-island history — built by polling Epic's public API ourselves, since Epic exposes no history of its own.">
+<meta property="og:title" content="Island Ledger — Fortnite Creative Analytics">
+<meta property="og:description" content="See how your UEFN island stacks up against every competitor — leaderboards, movers, and history Epic doesn't provide anywhere else.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
 <link rel="stylesheet" href="/style.css">
 
 <header class="topbar-nav">
@@ -13,6 +20,7 @@
     <button class="nav-item" data-view="leaderboard">Leaderboard</button>
     <button class="nav-item" data-view="movers">Movers</button>
     <button class="nav-item" data-view="creators">Creators</button>
+    <button class="nav-item" data-view="compare">Compare</button>
     <button class="nav-item" data-view="browse">Browse<span class="nav-count" id="nav-browse-count"></span></button>
     <button class="nav-item" data-view="explore">Explore</button>
     <button class="nav-item" data-view="health">Crawl Health</button>
@@ -27,6 +35,18 @@
 <main>
     <!-- ===================== OVERVIEW ===================== -->
     <section class="view active" id="view-overview">
+      <div class="intro-banner" id="intro-banner">
+        <button class="intro-dismiss" id="intro-dismiss" aria-label="Dismiss">×</button>
+        <h2>Epic exposes engagement metrics for every public Creative/UEFN island — but keeps no history of its own.</h2>
+        <p>
+          Creators get paid real money based on these exact numbers (engagement payouts, Item Shop-linked playtime), but
+          Epic's Creator Portal only shows <strong>your own</strong> island. This crawler polls Epic's public API daily and
+          keeps everything it sees — so you can watch <strong>Leaderboard</strong> rank by any metric, <strong>Movers</strong>
+          show what's trending, and <strong>Creators</strong> compare portfolios across the whole market, not just yours.
+          Every reading here exists only because it was captured at the time — there's no way to get it back otherwise.
+        </p>
+      </div>
+
       <div class="topbar">
         <h1>Overview</h1>
         <span class="sub" id="overview-updated">—</span>
@@ -103,6 +123,9 @@
           </div>
         </div>
         <div class="filter-row">
+          <select id="leaderboard-tag-filter"><option value="">All genres/tags</option></select>
+          <input type="text" id="leaderboard-creator-filter" placeholder="Filter by creator code…">
+          <button class="btn-ghost" id="leaderboard-clear-filters" style="display:none;">✕ Clear filters</button>
           <button class="btn-ghost" id="leaderboard-export">⇩ Export CSV</button>
         </div>
         <div class="table-scroll">
@@ -138,8 +161,17 @@
             <button class="tab-btn active" data-metric="peakCCU">Peak CCU</button>
             <button class="tab-btn" data-metric="uniquePlayers">Unique Players</button>
             <button class="tab-btn" data-metric="minutesPlayed">Minutes Played</button>
+            <button class="tab-btn" data-metric="plays">Plays</button>
             <button class="tab-btn" data-metric="favorites">Favorites</button>
+            <button class="tab-btn" data-metric="recommendations">Recommendations</button>
+            <button class="tab-btn" data-metric="retentionD1" title="% of players who played this island again the day after their first session">D1 Retention</button>
+            <button class="tab-btn" data-metric="retentionD7" title="% of players who played this island again within 7 days of their first session">D7 Retention</button>
           </div>
+        </div>
+        <div class="filter-row">
+          <select id="movers-tag-filter"><option value="">All genres/tags</option></select>
+          <input type="text" id="movers-creator-filter" placeholder="Filter by creator code…">
+          <button class="btn-ghost" id="movers-clear-filters" style="display:none;">✕ Clear filters</button>
         </div>
         <div class="table-scroll">
           <table>
@@ -169,6 +201,41 @@
         </div>
         <div class="empty-state" id="creators-empty" style="display:none;"></div>
       </div>
+    </section>
+
+    <!-- ===================== COMPARE ===================== -->
+    <section class="view" id="view-compare">
+      <div class="topbar">
+        <h1>Compare Islands</h1>
+        <span class="sub">Pick up to 3 to compare side by side — built for "how do I stack up against them?"</span>
+      </div>
+
+      <div class="panel">
+        <h2>Add an island</h2>
+        <p class="panel-sub">Search what this crawler has already tracked, by title, code, or creator.</p>
+        <div class="filter-row" style="margin-bottom:0;">
+          <input type="text" id="compare-search-input" placeholder="Search islands to add…" style="flex:1; min-width:220px;">
+        </div>
+        <div class="compare-results" id="compare-search-results"></div>
+      </div>
+
+      <div class="panel" id="compare-panel" style="display:none;">
+        <div class="panel-head">
+          <div class="titles">
+            <h2>Side by side</h2>
+            <p class="panel-sub">Green highlight marks the leader for that metric (only shown when values actually differ).</p>
+          </div>
+          <button class="btn-ghost" id="compare-clear">Clear all</button>
+        </div>
+        <div class="table-scroll">
+          <table id="compare-table">
+            <thead><tr id="compare-head"><th>Metric</th></tr></thead>
+            <tbody id="compare-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="empty-state" id="compare-empty">Search above and add at least 2 islands to compare.</div>
     </section>
 
     <!-- ===================== BROWSE ===================== -->
@@ -278,13 +345,13 @@
         <div class="tile">
           <span class="tile-label">Current cycle</span>
           <span class="tile-value accent-sonar" id="health-progress" style="font-size:19px;">—</span>
-          <span class="tile-note">cycles now run continuously, back-to-back</span>
+          <span class="tile-note" id="health-progress-note">one cycle runs per day</span>
         </div>
       </div>
 
       <div class="panel">
         <h2>Recent cycles</h2>
-        <p class="panel-sub">Most recent first. Each cycle discovers new islands via catalog pagination, then polls the eligible backlog for fresh metrics — 70% never-polled islands, 30% re-checks of islands already measured, oldest-checked first. Cycles now run back-to-back continuously.</p>
+        <p class="panel-sub">Most recent first. One cycle runs roughly once a day (Epic's metrics only update that often anyway). Each cycle discovers new islands via catalog pagination, then polls by priority: islands that have shown real traffic before get rechecked every cycle, never-polled islands get a steady share of what's left, and islands that have been checked repeatedly with zero traffic only get rechecked occasionally.</p>
         <div class="table-scroll">
           <table>
             <thead>
@@ -298,7 +365,7 @@
     </section>
 
     <footer style="border-top:1px solid var(--line); padding-top:16px; margin-top:8px; font-size:11.5px; color:var(--muted); line-height:1.6;">
-      Local instance. Built on Epic's public <code>ecosystem/v1</code> API — no auth, no accounts. History is only what this crawler has captured itself.
+      Built on Epic's public <code>ecosystem/v1</code> API — no data Epic doesn't already expose publicly. History is only what this crawler has captured itself: Epic's API keeps none of it.
     </footer>
 </main>
 

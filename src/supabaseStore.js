@@ -210,11 +210,12 @@ class SupabaseStore {
     return (data || []).map(rowToIslandWithLatest);
   }
 
-  async getLeaderboard(metric = 'peakCCU', limit = 25) {
+  async getLeaderboard(metric = 'peakCCU', limit = 25, { tag = null, creatorCode = null } = {}) {
     const col = METRIC_COLUMNS[metric] || METRIC_COLUMNS.peakCCU;
-    const { data } = check(
-      await this.client.from('islands_with_latest').select('*').not(col, 'is', null).order(col, { ascending: false }).limit(limit)
-    );
+    let q = this.client.from('islands_with_latest').select('*').not(col, 'is', null);
+    if (tag) q = q.contains('tags', [tag]);
+    if (creatorCode) q = q.eq('creator_code', creatorCode);
+    const { data } = check(await q.order(col, { ascending: false }).limit(limit));
     return (data || []).map(rowToIslandWithLatest);
   }
 
@@ -222,17 +223,16 @@ class SupabaseStore {
   // island with 2+ readings - fine at today's scale, worth revisiting if the
   // catalog's polled-twice-or-more population grows past the tens of
   // thousands.
-  async getMovers(metric = 'peakCCU', limit = 20, direction = 'up') {
+  async getMovers(metric = 'peakCCU', limit = 20, direction = 'up', { tag = null, creatorCode = null } = {}) {
     const col = METRIC_COLUMNS[metric] || METRIC_COLUMNS.peakCCU;
-    const { data } = check(
-      await this.client
-        .from('islands_with_movement')
-        .select('*')
-        .not(`latest_${col}`, 'is', null)
-        .not(`prior_${col}`, 'is', null)
-        .order('latest_captured_at', { ascending: false })
-        .limit(5000)
-    );
+    let mq = this.client
+      .from('islands_with_movement')
+      .select('*')
+      .not(`latest_${col}`, 'is', null)
+      .not(`prior_${col}`, 'is', null);
+    if (tag) mq = mq.contains('tags', [tag]);
+    if (creatorCode) mq = mq.eq('creator_code', creatorCode);
+    const { data } = check(await mq.order('latest_captured_at', { ascending: false }).limit(5000));
     const rows = (data || []).map((row) => {
       const latest = movementRowToLatest(row);
       const previous = movementRowToPrior(row);

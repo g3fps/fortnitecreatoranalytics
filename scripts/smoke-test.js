@@ -40,6 +40,55 @@ test('upsertIsland preserves lastMetricsPolledAt across re-upsert', () => {
   );
 });
 
+test('upsertIsland preserves pollAttempts across re-upsert', () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+  store.upsertIsland({ code: 'PA00-0000-0000', title: 'Test Island', creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+
+  store.islands.get('PA00-0000-0000').pollAttempts = 2;
+
+  // Simulate the catalog re-discovering the same island on a later crawl page.
+  store.upsertIsland({ code: 'PA00-0000-0000', title: 'Test Island', creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+
+  assert.equal(
+    store.islands.get('PA00-0000-0000').pollAttempts,
+    2,
+    'catalog re-scan must not reset the poll-attempts counter (or degradeIfConfirmedDead would never trigger)'
+  );
+});
+
+test('degradeIfConfirmedDead nulls title/category/createdIn but keeps tags and creatorCode, and only after enough dead attempts', () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+  store.upsertIsland({ code: 'DEG0-0000-0000', title: 'Doomed Island', creatorCode: 'someone', category: 'Horror', createdIn: 'UEFN', tags: ['scary', 'pvp'] });
+
+  store.islands.get('DEG0-0000-0000').pollAttempts = 2;
+  assert.equal(store.degradeIfConfirmedDead('DEG0-0000-0000', { minAttempts: 3 }), false, 'should not degrade below the attempt threshold');
+  assert.equal(store.islands.get('DEG0-0000-0000').title, 'Doomed Island');
+
+  store.islands.get('DEG0-0000-0000').pollAttempts = 3;
+  const degraded = store.degradeIfConfirmedDead('DEG0-0000-0000', { minAttempts: 3 });
+  assert.equal(degraded, true);
+
+  const rec = store.islands.get('DEG0-0000-0000');
+  assert.equal(rec.title, null);
+  assert.equal(rec.category, null);
+  assert.equal(rec.createdIn, null);
+  assert.deepEqual(rec.tags, ['scary', 'pvp'], 'tags must survive - getTagCounts() would otherwise undercount the whole catalog');
+  assert.equal(rec.creatorCode, 'someone', 'creatorCode must survive - creator island counts would otherwise shrink dishonestly');
+});
+
+test('degradeIfConfirmedDead never touches an island that has shown data, no matter how many attempts', () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+  store.upsertIsland({ code: 'ALIV-0000-0000', title: 'Alive Island', creatorCode: 'x', category: null, createdIn: 'UEFN', tags: [] });
+  store.addSnapshot('ALIV-0000-0000', { capturedAt: '2026-07-10T00:00:00.000Z', peakCCU: 5, uniquePlayers: 5, minutesPlayed: 5, averageMinutesPerPlayer: 1, plays: 5, favorites: 0, recommendations: 0, retentionD1: null, retentionD7: null });
+  store.islands.get('ALIV-0000-0000').pollAttempts = 10;
+
+  assert.equal(store.degradeIfConfirmedDead('ALIV-0000-0000', { minAttempts: 3 }), false);
+  assert.equal(store.islands.get('ALIV-0000-0000').title, 'Alive Island');
+});
+
 test('addSnapshot dedups identical capturedAt, writes on new capturedAt', () => {
   const dir = makeTempDir();
   const store = new Store(dir);

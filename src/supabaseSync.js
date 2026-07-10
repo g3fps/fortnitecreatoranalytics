@@ -54,6 +54,7 @@ function islandToRow(island) {
     first_seen_at: island.firstSeenAt,
     last_seen_at: island.lastSeenAt,
     last_metrics_polled_at: island.lastMetricsPolledAt ?? null,
+    poll_attempts: island.pollAttempts ?? 0,
   };
 }
 

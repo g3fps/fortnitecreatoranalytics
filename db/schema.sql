@@ -17,8 +17,15 @@ create table if not exists islands (
   tags                   text[] not null default '{}',
   first_seen_at          timestamptz not null default now(),
   last_seen_at           timestamptz not null default now(),
-  last_metrics_polled_at timestamptz
+  last_metrics_polled_at timestamptz,
+  poll_attempts          int not null default 0
 );
+
+-- create table ... if not exists doesn't add columns to an already-existing
+-- table, so this covers databases that ran an earlier version of this file.
+-- Fast/non-blocking in Postgres 11+ (a constant default doesn't rewrite the
+-- table).
+alter table islands add column if not exists poll_attempts int not null default 0;
 
 create index if not exists islands_creator_code_idx on islands (creator_code);
 create index if not exists islands_tags_idx on islands using gin (tags);
