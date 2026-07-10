@@ -33,11 +33,13 @@ and a public dashboard have fundamentally different runtime requirements:
 
 - **The crawler is a long-running process** (run it locally or on a small
   VPS — not Vercel, whose serverless functions are request-scoped and can't
-  run a loop for hours). It polls Epic's API once a day (`src/main.js`),
-  writes to local JSONL files as its own source of truth (fast, zero
-  install risk, trivial to inspect by hand), and mirrors every change to
-  Supabase Postgres (`src/supabaseSync.js`) so the data is centrally
-  queryable.
+  run a loop for hours). It polls Epic's API once a day (`src/main.js`) and
+  writes **directly to Supabase Postgres** via `src/crawlerStore.js`: at
+  boot it loads the catalog into memory once (for fast hot-loop reads —
+  deciding what to poll), then every change is an `UPDATE`/`INSERT` of just
+  the affected rows. No local database file. (Earlier versions kept the
+  whole catalog in a local `islands.json` and rewrote all ~113MB on every
+  save — that's gone; see the storage note under "Known limitations".)
 
   Daily is the right cadence *for what we currently poll*, not a hard limit
   of the API. `fetchLatestMetrics()` requests the **`day`** bucket, whose
@@ -307,14 +309,16 @@ and one-click "add to compare" / "see all by this creator").
   Epic's same endpoint also serves `hour` and `minute`. Polling those for a
   small set of paid-tier islands is a bounded, additive change, not a
   rearchitecture.
-- **The crawler's local store rewrites `islands.json` in full on every
-  persist.** At ~185k islands that's a ~70MB serialize-and-rewrite, and the
-  whole catalog is held in memory. Persistence is throttled to at most once
-  a minute (rather than every N polls) so that churn doesn't scale with
-  catalog size, but this is still the component that will need replacing
-  first — the crawler writing straight to Postgres, with local JSONL kept
-  only as a crash buffer, is the obvious next step. Supabase is already the
-  read path for everything user-facing, so this is contained to the crawler.
+- **The crawler still holds the whole catalog in memory.** `src/crawlerStore.js`
+  loads every island at boot (a ~35-40s parallelized read from Supabase at
+  ~280k islands) so the polling hot loop's reads are instant, then writes
+  changes straight to Postgres — no local file, no full-file rewrite (that
+  earlier `islands.json` rewrite problem is resolved). The remaining ceiling
+  is memory: the in-memory catalog grows with the number of islands. Fine
+  into the low millions; past that, the load would move to querying only the
+  slice of islands due for polling rather than the whole catalog.
+  (`scripts/crawl-once.js` still uses the local-file `Store` for the one-off
+  baseline sweep and dev/offline use.)
 - **Metric semantics are Epic's, not independently verified against a
   creator's actual Creator Portal numbers.** The field names and values match
   what Epic's API documentation describes, but nobody has cross-checked, say,

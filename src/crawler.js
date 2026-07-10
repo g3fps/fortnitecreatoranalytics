@@ -64,7 +64,7 @@ async function crawlOnce(store, opts = {}) {
   } = opts;
 
   const startedAt = new Date().toISOString();
-  store.setCrawlState({ lastCrawlStartedAt: startedAt });
+  await store.setCrawlState({ lastCrawlStartedAt: startedAt });
 
   const result = {
     catalogPagesFetched: 0,
@@ -122,8 +122,8 @@ async function crawlOnce(store, opts = {}) {
     await sleep(catalogDelayMs);
   }
 
-  store.persistIslands();
-  store.setCrawlState({ cursor: cursor || null });
+  await store.persistIslands({ force: true });
+  await store.setCrawlState({ cursor: cursor || null });
 
   // --- Phase 2: metrics polling ---
   // Three tiers, not just "polled vs not":
@@ -210,7 +210,9 @@ async function crawlOnce(store, opts = {}) {
     if (metrics === null) {
       result.metricsNotFound++;
     } else {
-      const { written } = store.addSnapshot(island.code, metrics);
+      // await works for both stores: Store's addSnapshot is synchronous
+      // (awaiting a non-promise is a no-op), CrawlerStore's writes to Postgres.
+      const { written } = await store.addSnapshot(island.code, metrics);
       if (written) result.metricsWritten++;
     }
 
@@ -218,7 +220,7 @@ async function crawlOnce(store, opts = {}) {
     // without deleting them (see Store.degradeIfConfirmedDead for why that
     // matters). Checked every poll, not just this one - degradeAfterAttempts
     // isn't necessarily reached on the attempt that just ran.
-    store.degradeIfConfirmedDead(island.code, { minAttempts: degradeAfterAttempts });
+    await store.degradeIfConfirmedDead(island.code, { minAttempts: degradeAfterAttempts });
 
     onProgress({
       phase: 'metrics',
@@ -230,15 +232,15 @@ async function crawlOnce(store, opts = {}) {
     });
 
     if (Date.now() - lastPersistAt >= PERSIST_EVERY_MS) {
-      store.persistIslands();
+      await store.persistIslands({ force: true });
       lastPersistAt = Date.now();
     }
 
     await sleep(metricsDelayMs);
   }
 
-  store.persistIslands();
-  store.setCrawlState({ lastCrawlFinishedAt: new Date().toISOString(), cyclesCompleted: cyclesCompleted + 1 });
+  await store.persistIslands({ force: true });
+  await store.setCrawlState({ lastCrawlFinishedAt: new Date().toISOString(), cyclesCompleted: cyclesCompleted + 1 });
 
   return result;
 }
