@@ -176,6 +176,10 @@ function createServer(store, options = {}) {
       const dir = req.query.dir === 'desc' ? 'desc' : 'asc';
       const hasDataRaw = req.query.hasData;
       const hasData = hasDataRaw === 'true' ? true : hasDataRaw === 'false' ? false : null;
+      // Default ON: hide the untitled-and-no-data internal noise (Epic
+      // tournament/matchmaking playlists). Client sends hideEmpty=false to
+      // show the full raw catalog.
+      const hideEmpty = req.query.hideEmpty !== 'false';
       const page = Number.isFinite(Number(req.query.page)) && Number(req.query.page) > 0 ? Number(req.query.page) : 1;
       const pageSize = Number.isFinite(Number(req.query.pageSize)) && Number(req.query.pageSize) > 0 ? Number(req.query.pageSize) : 50;
       const allowedSort = new Set(['title', 'firstSeenAt', ...ALLOWED_METRICS]);
@@ -183,6 +187,7 @@ function createServer(store, options = {}) {
         await store.browseIslands({
           ...parseFilterParams(req.query),
           hasData,
+          hideEmpty,
           sort: typeof sort === 'string' && allowedSort.has(sort) ? sort : 'title',
           dir,
           page,

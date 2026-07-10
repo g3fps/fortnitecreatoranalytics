@@ -196,10 +196,10 @@
 
       <div class="panel">
         <h2>Ranked by total reach</h2>
-        <p class="panel-sub">Sum of peak CCU across every island we've measured for that creator. Click a creator to browse their full catalog, including islands not yet polled.</p>
+        <p class="panel-sub">Sum of peak concurrent players across every island we've measured for that creator. "Active / total" shows how many of their published islands currently have live traffic. Click a creator to see their full catalog.</p>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>#</th><th>Creator</th><th>Islands</th><th>Best Island</th><th>Total Peak CCU</th></tr></thead>
+            <thead><tr><th>#</th><th>Creator</th><th title="Islands with live traffic / total islands published">Active / Total</th><th>Best Island</th><th>Total Peak CCU</th></tr></thead>
             <tbody id="creators-body"></tbody>
           </table>
         </div>
@@ -295,17 +295,18 @@
             <option value="false">Not polled yet</option>
           </select>
           <select id="browse-sort">
-            <option value="title">Sort: Title A–Z</option>
-            <option value="firstSeenAt">Sort: Recently discovered</option>
             <option value="peakCCU">Sort: Peak CCU</option>
             <option value="uniquePlayers">Sort: Unique Players</option>
             <option value="minutesPlayed">Sort: Minutes Played</option>
             <option value="favorites">Sort: Favorites</option>
+            <option value="title">Sort: Title A–Z</option>
+            <option value="firstSeenAt">Sort: Recently discovered</option>
           </select>
           <select id="browse-dir">
             <option value="desc">High → Low</option>
             <option value="asc">Low → High</option>
           </select>
+          <label class="check-label"><input type="checkbox" id="browse-show-empty"> Show unnamed / inactive</label>
           <button class="btn-ghost" id="browse-export">⇩ Export page CSV</button>
         </div>
 

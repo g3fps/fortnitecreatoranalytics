@@ -664,6 +664,17 @@ td.value { width: 180px; }
 
 .topbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
+.check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--paper-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.check-label input { cursor: pointer; }
+
 /* ---------- modal (auth) ---------- */
 
 .modal-backdrop {

@@ -120,12 +120,21 @@ function movementRowToPrior(row) {
   };
 }
 
-function applyBrowseFilters(query, { tag, creatorCode, hasData }) {
+function applyBrowseFilters(query, { tag, creatorCode, hasData, hideEmpty }) {
   let q = query;
   if (tag) q = q.contains('tags', [tag]);
   if (creatorCode) q = q.eq('creator_code', creatorCode);
   if (hasData === true) q = q.not('captured_at', 'is', null);
   if (hasData === false) q = q.is('captured_at', null);
+  // hideEmpty drops internal-noise rows (Epic tournament/matchmaking
+  // playlists): untitled AND never showed data. The row is KEPT when it has
+  // a non-empty title OR it has a reading - so an untitled-but-active island
+  // still survives. In the junk data, title is an empty string ('') rather
+  // than null, so the "has a real title" test is: title is not null AND
+  // title <> '', which PostgREST expresses inside .or() with the and() group.
+  if (hideEmpty) {
+    q = q.or('and(title.not.is.null,title.neq.),captured_at.not.is.null');
+  }
   return q;
 }
 
@@ -290,15 +299,12 @@ class SupabaseStore {
   }
 
   async browseIslands(opts = {}) {
-    const { tag = null, creatorCode = null, hasData = null, sort = 'title', dir = 'asc', page = 1, pageSize = 50 } = opts;
+    const { tag = null, creatorCode = null, hasData = null, hideEmpty = false, sort = 'title', dir = 'asc', page = 1, pageSize = 50 } = opts;
     const safePageSize = Math.min(Math.max(1, pageSize), 200);
+    const filters = { tag, creatorCode, hasData, hideEmpty };
 
     const { count } = check(
-      await applyBrowseFilters(this.client.from('islands_with_latest').select('code', { count: 'exact', head: true }), {
-        tag,
-        creatorCode,
-        hasData,
-      })
+      await applyBrowseFilters(this.client.from('islands_with_latest').select('code', { count: 'exact', head: true }), filters)
     );
     const total = count || 0;
     const totalPages = Math.max(1, Math.ceil(total / safePageSize));
@@ -306,7 +312,7 @@ class SupabaseStore {
     const start = (safePage - 1) * safePageSize;
 
     const col = BROWSE_SORT_COLUMNS[sort] || 'title';
-    let dataQuery = applyBrowseFilters(this.client.from('islands_with_latest').select('*'), { tag, creatorCode, hasData });
+    let dataQuery = applyBrowseFilters(this.client.from('islands_with_latest').select('*'), filters);
     dataQuery = dataQuery.order(col, { ascending: dir !== 'desc', nullsFirst: false }).range(start, start + safePageSize - 1);
     const { data } = check(await dataQuery);
 

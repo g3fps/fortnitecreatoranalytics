@@ -332,6 +332,29 @@ test('browseIslands filters, sorts, and paginates correctly, clamping out-of-ran
   assert.ok(paged.rows.length > 0);
 });
 
+test('browseIslands hideEmpty drops untitled-and-no-data noise but keeps titled or active islands', () => {
+  const dir = makeTempDir();
+  const store = new Store(dir);
+  const base = { peakCCU: 5, uniquePlayers: 5, minutesPlayed: 5, averageMinutesPerPlayer: 1, plays: 5, favorites: 0, recommendations: 0, retentionD1: null, retentionD7: null };
+
+  // 1. Untitled + no data - the junk hideEmpty should remove.
+  store.upsertIsland({ code: 'JUNK-0000-0000', title: '', creatorCode: 'epic', category: null, createdIn: null, tags: [] });
+  // 2. Titled + no data - a real published island not yet polled; must stay.
+  store.upsertIsland({ code: 'NAMED-000-0000', title: 'Real Island', creatorCode: 'someone', category: null, createdIn: 'UEFN', tags: [] });
+  // 3. Untitled + HAS data - e.g. an internal mode with players; must stay.
+  store.upsertIsland({ code: 'ACTIVE-00-0000', title: '', creatorCode: 'epic', category: null, createdIn: null, tags: [] });
+  store.addSnapshot('ACTIVE-00-0000', { ...base, capturedAt: '2026-07-10T00:00:00.000Z' });
+  // 4. Null title + no data - also junk (title can be null, not just '').
+  store.upsertIsland({ code: 'NULLT-000-0000', title: null, creatorCode: 'epic', category: null, createdIn: null, tags: [] });
+
+  const shown = store.browseIslands({ hideEmpty: true, pageSize: 50 });
+  const codes = shown.rows.map((r) => r.code).sort();
+  assert.deepEqual(codes, ['ACTIVE-00-0000', 'NAMED-000-0000'], 'only titled or active islands survive hideEmpty');
+
+  const all = store.browseIslands({ hideEmpty: false, pageSize: 50 });
+  assert.equal(all.total, 4, 'hideEmpty off shows the full set including junk');
+});
+
 test('GET /api/lookup/:code fetches a map directly from Epic, even one the crawler never discovered, and adds it to the store', async () => {
   const dir = makeTempDir();
   const store = new Store(dir);

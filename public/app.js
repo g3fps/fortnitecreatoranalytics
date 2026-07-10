@@ -821,7 +821,7 @@ async function renderCompare() {
 
 // ---------------------------------------------------------------- browse
 
-const browseState = { tag: null, creatorCode: null, hasData: '', sort: 'title', dir: 'asc', page: 1, pageSize: 40 };
+const browseState = { tag: null, creatorCode: null, hasData: '', showEmpty: false, sort: 'peakCCU', dir: 'desc', page: 1, pageSize: 40 };
 let lastBrowseRows = [];
 
 let allTags = [];
@@ -916,6 +916,13 @@ function renderActiveFilters() {
   }
 }
 
+// Reflect the JS defaults in the actual select elements on load (the HTML
+// lists options in a fixed order; the browseState defaults are the source of
+// truth).
+$('browse-sort').value = browseState.sort;
+$('browse-dir').value = browseState.dir;
+$('browse-show-empty').checked = browseState.showEmpty;
+
 $('browse-hasdata').addEventListener('change', (e) => {
   browseState.hasData = e.target.value;
   browseState.page = 1;
@@ -928,6 +935,11 @@ $('browse-sort').addEventListener('change', (e) => {
 });
 $('browse-dir').addEventListener('change', (e) => {
   browseState.dir = e.target.value;
+  loadBrowse();
+});
+$('browse-show-empty').addEventListener('change', (e) => {
+  browseState.showEmpty = e.target.checked;
+  browseState.page = 1;
   loadBrowse();
 });
 $('browse-prev').addEventListener('click', () => {
@@ -999,6 +1011,9 @@ async function loadBrowse() {
     if (browseState.tag) params.set('tag', browseState.tag);
     if (browseState.creatorCode) params.set('creatorCode', browseState.creatorCode);
     if (browseState.hasData) params.set('hasData', browseState.hasData);
+    // API hides unnamed/inactive by default; only send the override when the
+    // user has ticked "show" them.
+    if (browseState.showEmpty) params.set('hideEmpty', 'false');
 
     const data = await fetchJson(`/api/browse?${params.toString()}`);
     lastBrowseRows = data.rows;

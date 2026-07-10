@@ -327,7 +327,7 @@ class Store {
   // General-purpose paginated/filterable listing over the entire catalog,
   // not just the top-N leaderboard slice. This is the only way to actually
   // browse the long tail rather than the same 25-40 popular islands.
-  browseIslands({ tag = null, creatorCode = null, hasData = null, sort = 'title', dir = 'asc', page = 1, pageSize = 50 } = {}) {
+  browseIslands({ tag = null, creatorCode = null, hasData = null, hideEmpty = false, sort = 'title', dir = 'asc', page = 1, pageSize = 50 } = {}) {
     let rows = [];
     for (const meta of this.islands.values()) {
       if (tag && !(meta.tags || []).includes(tag)) continue;
@@ -336,6 +336,11 @@ class Store {
       const latest = hist && hist.length ? hist[hist.length - 1] : null;
       if (hasData === true && !latest) continue;
       if (hasData === false && latest) continue;
+      // hideEmpty drops the internal-noise rows (Epic tournament/matchmaking
+      // playlists): islands that are BOTH untitled AND have never shown data.
+      // An island with a real title, or with any reading, is always kept -
+      // including Epic's own big modes like "Battle Royale".
+      if (hideEmpty && !latest && !(meta.title && meta.title.trim())) continue;
       rows.push({ ...meta, latest });
     }
 
