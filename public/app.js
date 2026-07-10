@@ -951,6 +951,43 @@ $('browse-export').addEventListener('click', () => {
   })));
 });
 
+// When Browse is filtered to a single creator, show their portfolio at a
+// glance - the aggregate reach number an agency actually cares about, which
+// no single-island row conveys. Totals are summed over the creator's
+// islands that have live data (the leaderboard endpoint filtered to them,
+// which returns up to 200 - plenty for any real creator).
+async function renderCreatorSummary() {
+  const box = $('browse-creator-summary');
+  if (!browseState.creatorCode) {
+    box.style.display = 'none';
+    return;
+  }
+  try {
+    const data = await fetchJson(`/api/leaderboard?metric=peakCCU&creatorCode=${encodeURIComponent(browseState.creatorCode)}&limit=200`);
+    const rows = data.rows || [];
+    const totalPeak = rows.reduce((s, r) => s + (r.latest?.peakCCU ?? 0), 0);
+    const totalUnique = rows.reduce((s, r) => s + (r.latest?.uniquePlayers ?? 0), 0);
+    const best = rows[0];
+
+    clearChildren(box);
+    box.style.display = 'block';
+
+    const h = document.createElement('h2');
+    h.textContent = browseState.creatorCode;
+    box.appendChild(h);
+
+    const sub = document.createElement('p');
+    sub.className = 'panel-sub';
+    sub.textContent = rows.length
+      ? `${rows.length} island${rows.length === 1 ? '' : 's'} with live data · combined ${fmtNumber(totalPeak)} peak CCU · ${fmtNumber(totalUnique)} unique players${best ? ` · top island: ${best.title || best.code}` : ''}`
+      : 'No islands from this creator have live data captured yet.';
+    box.appendChild(sub);
+  } catch (err) {
+    console.error('renderCreatorSummary failed', err);
+    box.style.display = 'none';
+  }
+}
+
 async function loadBrowse() {
   try {
     const params = new URLSearchParams({
@@ -966,6 +1003,8 @@ async function loadBrowse() {
     const data = await fetchJson(`/api/browse?${params.toString()}`);
     lastBrowseRows = data.rows;
     browseState.page = data.page;
+
+    await renderCreatorSummary();
 
     $('browse-total').textContent = `${data.total.toLocaleString()} island${data.total === 1 ? '' : 's'} matching filters`;
     $('nav-browse-count').textContent = '';
@@ -1059,7 +1098,7 @@ async function runLookup() {
       const grid = document.createElement('div');
       grid.className = 'metric-grid';
       grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
-      for (const key of ['peakCCU', 'uniquePlayers', 'minutesPlayed', 'plays', 'favorites', 'recommendations']) {
+      for (const key of ['peakCCU', 'uniquePlayers', 'minutesPlayed', 'plays', 'favorites', 'recommendations', 'retentionD1', 'retentionD7']) {
         const tile = document.createElement('div');
         tile.className = 'metric-tile';
         const label = document.createElement('div');
@@ -1067,7 +1106,7 @@ async function runLookup() {
         label.textContent = METRIC_LABELS[key];
         const value = document.createElement('div');
         value.className = 'value';
-        value.textContent = fmtNumber(body.latest[key]);
+        value.textContent = fmtMetricValue(body.latest[key], key);
         tile.appendChild(label);
         tile.appendChild(value);
         grid.appendChild(tile);
@@ -1271,21 +1310,63 @@ async function showDetail(code) {
     const grid = $('drawer-metrics');
     clearChildren(grid);
     const latest = island.latest || {};
-    for (const key of ['peakCCU', 'uniquePlayers', 'minutesPlayed', 'averageMinutesPerPlayer', 'plays', 'favorites']) {
-      const tile = document.createElement('div');
-      tile.className = 'metric-tile';
-      const label = document.createElement('div');
-      label.className = 'label';
-      label.textContent = METRIC_LABELS[key];
-      const value = document.createElement('div');
-      value.className = 'value';
-      value.textContent = fmtNumber(latest[key]);
-      tile.appendChild(label);
-      tile.appendChild(value);
-      grid.appendChild(tile);
+    if (!island.latest) {
+      const note = document.createElement('div');
+      note.className = 'empty-state';
+      note.style.gridColumn = '1 / -1';
+      note.style.padding = '14px';
+      note.textContent = 'No live reading yet — this island has been discovered but not polled, or showed no active players when last checked.';
+      grid.appendChild(note);
+    } else {
+      for (const key of ['peakCCU', 'uniquePlayers', 'minutesPlayed', 'averageMinutesPerPlayer', 'plays', 'favorites', 'recommendations', 'retentionD1', 'retentionD7']) {
+        const tile = document.createElement('div');
+        tile.className = 'metric-tile';
+        const label = document.createElement('div');
+        label.className = 'label';
+        label.textContent = METRIC_LABELS[key];
+        const value = document.createElement('div');
+        value.className = 'value';
+        value.textContent = fmtMetricValue(latest[key], key);
+        tile.appendChild(label);
+        tile.appendChild(value);
+        grid.appendChild(tile);
+      }
     }
 
-    $('drawer-chart-caption').textContent = `${METRIC_LABELS[currentMetric]} over time (captured by this crawler only)`;
+    // Actions: turn the two dead-ends (compare, see creator's catalog) into
+    // one-click jumps, since this drawer is where people land from every table.
+    const actions = $('drawer-actions');
+    clearChildren(actions);
+    if (island.latest) {
+      const cmpBtn = document.createElement('button');
+      cmpBtn.className = 'btn-ghost';
+      cmpBtn.textContent = compareCodes.includes(island.code) ? '✓ In compare' : '+ Add to compare';
+      cmpBtn.disabled = compareCodes.includes(island.code) || compareCodes.length >= COMPARE_MAX;
+      cmpBtn.addEventListener('click', async () => {
+        await addToCompare(island.code);
+        closeDrawer();
+        switchView('compare');
+      });
+      actions.appendChild(cmpBtn);
+    }
+    if (island.creatorCode) {
+      const creatorBtn = document.createElement('button');
+      creatorBtn.className = 'btn-ghost';
+      creatorBtn.textContent = `See all by ${island.creatorCode} →`;
+      creatorBtn.addEventListener('click', () => {
+        closeDrawer();
+        switchView('browse');
+        applyCreatorFilter(island.creatorCode);
+      });
+      actions.appendChild(creatorBtn);
+    }
+
+    // The sparkline metric follows whatever the leaderboard is currently
+    // showing; label it, and be honest when there's only one point to plot.
+    const oneReading = (historyResp.snapshots || []).length < 2;
+    $('drawer-chart-caption').textContent = oneReading
+      ? `${METRIC_LABELS[currentMetric]} — only one reading so far; the line fills in as the crawler captures more over the coming days`
+      : `${METRIC_LABELS[currentMetric]} over time (captured by this crawler only)`;
     clearChildren($('drawer-chart'));
     $('drawer-chart').appendChild(buildSparkline(historyResp.snapshots, currentMetric));
 
