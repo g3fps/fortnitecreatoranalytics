@@ -712,6 +712,24 @@ td.value { width: 180px; }
 .upgrade-perks li::before { content: '✓ '; color: var(--ok); font-weight: 700; }
 .upgrade-perks strong { color: var(--paper); }
 
+.billing-toggle { display: flex; gap: 6px; margin: 12px 0 10px; }
+.billing-opt {
+  flex: 1;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.billing-opt.active { color: var(--paper); border-color: var(--accent); background: var(--accent-soft); }
+.billing-save { font-size: 10px; color: var(--ok); font-weight: 700; margin-left: 3px; }
+.upgrade-price { text-align: center; margin: 4px 0 14px; }
+.price-num { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+.price-unit { font-size: 14px; color: var(--muted); }
+.price-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
 /* ---------- homepage ---------- */
 
 .btn-primary {

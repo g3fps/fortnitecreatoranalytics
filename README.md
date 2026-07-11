@@ -6,7 +6,7 @@ Blade for islands: a leaderboard, per-island history, movers, and creator
 portfolios — for a market where creators get paid real money based on these
 exact numbers, and can otherwise only see their *own* island's stats.
 
-Live: **https://fortnite-creator-analytics.vercel.app**
+Live: **https://uefnstats.com**
 
 ## Why this exists
 

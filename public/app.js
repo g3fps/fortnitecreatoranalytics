@@ -1467,10 +1467,19 @@ let isPro = false;
 let watchlistCodes = new Set(); // codes the signed-in user is tracking
 
 // Single source of truth for the free/Pro split. Changing a limit here
-// changes it everywhere it's enforced.
+// changes it everywhere it's enforced. A `studio` tier slot is intentionally
+// left out for now — it'll drop in here (seats/roster/API) once there's
+// agency demand; the gating code already keys off can()/planLimits() so
+// adding a tier is config-only.
 const PLAN_LIMITS = {
   free: { watchlistMax: 3, historyDays: 7, compare: false, csvExport: false },
   pro: { watchlistMax: Infinity, historyDays: Infinity, compare: true, csvExport: true },
+};
+
+// Pricing (single source of truth; shown in the upgrade modal, used by Stripe
+// checkout once wired). Annual is ~2 months free.
+const PRICING = {
+  pro: { monthly: 19, yearly: 190, currency: 'USD' },
 };
 
 function planLimits() {
@@ -1620,9 +1629,22 @@ function closeAuthModal() {
 // Stripe Checkout gets wired into the checkout button once the account + key
 // exist (see README). For now it explains the plan and shows a clear
 // "not yet available" state rather than a fake payment flow.
+let billingCycle = 'monthly';
+
+function renderUpgradePrice() {
+  const p = PRICING.pro;
+  const el = $('upgrade-price');
+  if (billingCycle === 'yearly') {
+    el.innerHTML = `<span class="price-num">$${p.yearly}</span><span class="price-unit">/year</span> <span class="price-sub">($${(p.yearly / 12).toFixed(2)}/mo, billed annually)</span>`;
+  } else {
+    el.innerHTML = `<span class="price-num">$${p.monthly}</span><span class="price-unit">/month</span>`;
+  }
+}
+
 function openUpgradeModal() {
   $('upgrade-msg').textContent = '';
   $('upgrade-msg').className = 'auth-msg';
+  renderUpgradePrice();
   $('upgrade-backdrop').classList.add('open');
   $('upgrade-modal').classList.add('open');
 }
@@ -1633,11 +1655,18 @@ function closeUpgradeModal() {
 function wireUpgradeUi() {
   $('upgrade-close').addEventListener('click', closeUpgradeModal);
   $('upgrade-backdrop').addEventListener('click', closeUpgradeModal);
+  document.querySelectorAll('.billing-opt').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      billingCycle = btn.dataset.billing;
+      document.querySelectorAll('.billing-opt').forEach((b) => b.classList.toggle('active', b === btn));
+      renderUpgradePrice();
+    });
+  });
   $('upgrade-checkout').addEventListener('click', async () => {
     const msg = $('upgrade-msg');
-    // Placeholder until Stripe is connected. When STRIPE is wired, this
-    // becomes a fetch to a /api/create-checkout-session endpoint that returns
-    // a Checkout URL to redirect to.
+    // Placeholder until Stripe is connected. When wired, this becomes a fetch
+    // to /api/create-checkout-session with { cycle: billingCycle } that
+    // returns a Stripe Checkout URL to redirect to.
     if (!window.STRIPE_ENABLED) {
       msg.className = 'auth-msg';
       msg.textContent = 'Checkout isn\'t live yet — Pro is coming very soon.';
