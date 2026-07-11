@@ -199,21 +199,12 @@ async function refreshStatus() {
     const text = $('status-text');
     const progress = stats.crawlProgress || { inProgress: false, current: null };
 
+    // The public status chip intentionally hides crawler internals (exact
+    // poll progress, how long since the last cycle) - competitors don't need
+    // our coverage numbers. It only signals "data is live and updating."
     dot.classList.remove('stale', 'error', 'live');
-    if (progress.inProgress && progress.current) {
-      dot.classList.add('live');
-      const polled = progress.current.metricsPolled || 0;
-      const total = progress.current.totalCandidates;
-      text.textContent = total
-        ? `crawling — ${polled.toLocaleString()} / ${total.toLocaleString()} polled this cycle`
-        : `crawling — discovering catalog…`;
-    } else if (!stats.crawlState?.lastCrawlFinishedAt) {
-      dot.classList.add('stale');
-      text.textContent = 'starting first cycle…';
-    } else {
-      dot.classList.add('stale');
-      text.textContent = `between cycles — last finished ${fmtRelativeTime(stats.crawlState.lastCrawlFinishedAt)}`;
-    }
+    dot.classList.add('live');
+    text.textContent = 'Live data';
     return stats;
   } catch (err) {
     $('status-dot').classList.add('error');

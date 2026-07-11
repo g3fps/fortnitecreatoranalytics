@@ -22,6 +22,12 @@ const METRICS_DELAY_MS = Number(process.env.METRICS_DELAY_MS) || 80;
 // process while a separate crawler (or baseline sweep) writes to Supabase.
 const NO_CRAWL = process.argv.includes('--no-crawl') || process.env.NO_CRAWL === '1';
 
+// Crawl without standing up the HTTP server - for running the crawler on an
+// always-on host (VPS/cloud) where Vercel already serves the dashboard, so no
+// local web server or port is needed. NO_CRAWL + NO_SERVER together make no
+// sense (nothing to do); NO_CRAWL wins with a warning.
+const NO_SERVER = process.argv.includes('--no-server') || process.env.NO_SERVER === '1';
+
 let crawlInFlight = false;
 let currentCycle = null; // live progress of the in-flight cycle, or null
 let crawlStore; // write path for the crawl loop (CrawlerStore, or null)
@@ -175,14 +181,40 @@ async function bootstrap() {
   crawlStore = built.crawlStore;
   webStore = built.webStore;
 
+  // Crawl-only mode (always-on host): no HTTP server, just the crawl loop.
+  // Vercel serves the dashboard; this process only writes to Supabase.
+  if (NO_SERVER && !NO_CRAWL) {
+    console.log('[main] --no-server: crawling only, no HTTP server (dashboard is served elsewhere).');
+    loop();
+    startStallMonitor();
+    return;
+  }
+
   // The Express API reads through webStore (full read interface); the crawl
   // loop writes through crawlStore.
   const app = createServer(webStore, {
     crawlIntervalMs: NO_CRAWL ? null : CRAWL_INTERVAL_MS,
     getCrawlProgress: () => ({ inProgress: crawlInFlight, current: currentCycle }),
   });
-  server = app.listen(PORT, () => {
-    console.log(`[server] listening on http://localhost:${PORT} (reading from ${built.label})`);
+  // Bring the HTTP server up before starting the crawl loop, and turn a port
+  // conflict into a clear, fatal message instead of an unhandled 'error' event
+  // that crashes the whole process (which previously killed the crawler too,
+  // showing up as a FATAL cycle every ~2s). We only begin crawling once the
+  // socket is actually listening.
+  await new Promise((resolve, reject) => {
+    server = app.listen(PORT);
+    server.once('listening', () => {
+      console.log(`[server] listening on http://localhost:${PORT} (reading from ${built.label})`);
+      resolve();
+    });
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[main] port ${PORT} is already in use - another crawler/server is running. Stop it first (or set PORT=... for this one).`);
+      } else {
+        console.error('[main] HTTP server error:', err);
+      }
+      reject(err);
+    });
   });
 
   if (NO_CRAWL) {
@@ -197,7 +229,7 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  console.error('[main] failed to start:', err);
+  console.error('[main] failed to start:', err && err.message ? err.message : err);
   process.exit(1);
 });
 

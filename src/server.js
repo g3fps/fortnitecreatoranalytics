@@ -277,6 +277,14 @@ function createServer(store, options = {}) {
 
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
+  // Clean URLs for the standalone static pages, mirroring the rewrites in
+  // vercel.json so /terms and /privacy work the same in local dev as in
+  // production (without these, the SPA catch-all below would swallow them).
+  const staticPages = { '/terms': 'terms.html', '/privacy': 'privacy.html' };
+  for (const [route, file] of Object.entries(staticPages)) {
+    app.get(route, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', file)));
+  }
+
   // package.json pins Express 4.x (path-to-regexp 0.1.x), where a bare '*'
   // is the catch-all wildcard. Express 5's path-to-regexp requires a named
   // wildcard like '/*splat' instead - don't switch to that syntax unless the

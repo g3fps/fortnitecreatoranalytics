@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node src/main.js",
     "serve": "node src/main.js --no-crawl",
+    "crawl-only": "node src/main.js --no-server",
     "crawl": "node scripts/crawl-once.js",
     "crawler-status": "node scripts/crawler-status.js",
     "test": "node --test scripts/smoke-test.js"
