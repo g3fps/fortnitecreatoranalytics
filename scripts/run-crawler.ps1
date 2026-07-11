@@ -51,6 +51,17 @@ while ($true) {
   $code = $proc.ExitCode
   $ranSeconds = [int]((Get-Date) - $started).TotalSeconds
 
+  # Exit code 0 = clean, deliberate stop. The crawler now exits 0 when it
+  # finds another instance already owning the port (the single-instance
+  # guard), so this isn't a crash to restart-hammer - wait a calm 30s and
+  # re-check, in case that other instance later goes away.
+  if ($code -eq 0) {
+    Write-Log "crawler exited cleanly (code 0) after ${ranSeconds}s - another instance is running or it stopped on purpose; re-checking in 30s"
+    Start-Sleep -Seconds 30
+    $backoff = 2
+    continue
+  }
+
   # If it ran healthily for a while (>60s) before dying, treat this as a
   # fresh transient failure: reset the backoff. Only rapid crash-loops
   # escalate the delay (capped at 60s), so a bad env or Supabase-down state

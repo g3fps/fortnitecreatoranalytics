@@ -209,10 +209,15 @@ async function bootstrap() {
     });
     server.once('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`[main] port ${PORT} is already in use - another crawler/server is running. Stop it first (or set PORT=... for this one).`);
-      } else {
-        console.error('[main] HTTP server error:', err);
+        // Another crawler already owns the port, so it's already doing the
+        // work - this instance must NOT keep the process alive fighting for
+        // it. Exit 0 (clean) so the keep-alive wrapper treats it as "already
+        // running, stand down" rather than a crash to restart-loop on. This
+        // is the single-instance guard: it's impossible to run two crawlers.
+        console.error(`[main] port ${PORT} already in use - another crawler is already running. This instance is exiting (not an error).`);
+        process.exit(0);
       }
+      console.error('[main] HTTP server error:', err);
       reject(err);
     });
   });
