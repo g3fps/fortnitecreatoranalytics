@@ -156,21 +156,30 @@ async function loop() {
   }
 }
 
-// Safety net only - logs if a cycle has been running suspiciously long
-// (possible hang), it does not intervene. Forcibly starting a second
-// concurrent cycle would be worse than a stalled one (duplicate in-flight
-// writes), so the only automatic recovery here is the crash-safety already
-// built into crawlOnce's periodic persistence.
+// A wedged crawler is worse than a dead one: it looks alive (process up, port
+// held, "cycle running") while collecting nothing, so nobody notices for hours.
+// This monitor warns at STALL_WARNING_MS, then - if a cycle blows past a hard
+// deadline no legitimate cycle should ever reach - exits so the keep-alive
+// wrapper restarts it clean. crawlOnce persists incrementally, so a restart
+// loses at most the in-flight batch, not the cycle's work.
+const STALL_HARD_LIMIT_MS = Number(process.env.STALL_HARD_LIMIT_MS) || 90 * 60 * 1000;
+
 let stallMonitor = null;
 function startStallMonitor() {
   stallMonitor = setInterval(() => {
     if (crawlInFlight && currentCycle) {
       const runningForMs = Date.now() - new Date(currentCycle.startedAt).getTime();
+      if (runningForMs > STALL_HARD_LIMIT_MS) {
+        console.error(
+          `[main] cycle wedged for ${(runningForMs / 60000).toFixed(1)} min (hard limit ${(STALL_HARD_LIMIT_MS / 60000).toFixed(0)} min) - exiting so the supervisor restarts a clean crawler.`
+        );
+        process.exit(1);
+      }
       if (runningForMs > STALL_WARNING_MS) {
         console.error(`[main] current cycle has been running for ${(runningForMs / 60000).toFixed(1)} min - possible stall`);
       }
     }
-  }, 10 * 60 * 1000);
+  }, 60 * 1000);
 }
 
 // Build the store (async: CrawlerStore loads the catalog from Supabase),

@@ -15,6 +15,29 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+// supabase-js calls fetch with no AbortSignal, so a request that stalls (a
+// dropped connection, a network blip, a Supabase hiccup) hangs FOREVER - the
+// awaiting caller never resolves, never throws. That is exactly how the
+// crawler used to wedge: a cycle would start, block on a Supabase write, and
+// sit there with no output, no error, and no CPU until it was killed.
+//
+// Wrapping fetch with an AbortController turns "hang forever" into a normal
+// error the crawler's existing retry/error handling can see.
+const REQUEST_TIMEOUT_MS = Number(process.env.SUPABASE_TIMEOUT_MS) || 60000;
+
+function timeoutFetch(input, init = {}) {
+  // Respect a caller-supplied signal if there ever is one; otherwise use ours.
+  if (init.signal) return fetch(input, init);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+const clientOptions = {
+  auth: { persistSession: false },
+  global: { fetch: timeoutFetch },
+};
+
 let serviceClient = null;
 let anonClient = null;
 
@@ -25,7 +48,7 @@ function getServiceClient() {
   if (!url || !key) {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set to use the Supabase service client.');
   }
-  serviceClient = createClient(url, key, { auth: { persistSession: false } });
+  serviceClient = createClient(url, key, clientOptions);
   return serviceClient;
 }
 
@@ -36,7 +59,7 @@ function getAnonClient() {
   if (!url || !key) {
     throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set to use the Supabase anon client.');
   }
-  anonClient = createClient(url, key, { auth: { persistSession: false } });
+  anonClient = createClient(url, key, clientOptions);
   return anonClient;
 }
 
