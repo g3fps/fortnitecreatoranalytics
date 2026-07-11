@@ -207,24 +207,37 @@ class CrawlerStore {
     if (this._dirty.size === 0) return;
     const codes = [...this._dirty];
     this._dirty.clear();
-    const rows = [];
+    // Split into two uniform batches: new islands (which carry first_seen_at)
+    // and existing islands (which must NOT overwrite the DB's first_seen_at).
+    // They can't share a batch: a Postgres batch upsert uses one column set for
+    // all rows, so mixing "has first_seen_at" and "omits first_seen_at" rows
+    // makes PostgREST insert NULL for the omitted ones -> NOT NULL violation.
+    const newRows = [];
+    const existingRows = [];
     for (const code of codes) {
       const rec = this.islands.get(code);
       if (!rec) continue;
       const row = islandToRow(rec);
-      // Only write first_seen_at for islands new to this process. For existing
-      // islands (loaded at boot without first_seen_at), omitting the column
-      // from the upsert leaves the DB's stored value untouched.
-      if (!rec._isNew) delete row.first_seen_at;
-      else rec._isNew = false; // written now; don't re-write on future flushes
-      rows.push(row);
+      if (rec._isNew) {
+        newRows.push(row); // includes first_seen_at (set to now in upsertIsland)
+        rec._isNew = false; // written now; treat as existing on future flushes
+      } else {
+        delete row.first_seen_at; // preserve the DB's existing value
+        existingRows.push(row);
+      }
     }
+
     const CHUNK = 500;
-    try {
+    const flushBatch = async (rows) => {
       for (let i = 0; i < rows.length; i += CHUNK) {
         const { error } = await this.client.from('islands').upsert(rows.slice(i, i + CHUNK), { onConflict: 'code' });
         if (error) throw new Error(error.message);
       }
+    };
+
+    try {
+      await flushBatch(newRows);
+      await flushBatch(existingRows);
     } catch (err) {
       // Re-queue on failure so nothing is silently lost; next flush retries.
       for (const code of codes) this._dirty.add(code);

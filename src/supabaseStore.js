@@ -143,6 +143,26 @@ function check(result) {
   return result;
 }
 
+// Retry a query-producing function once on a transient statement timeout.
+// These happen when the crawler is mid-cycle and momentarily saturates the
+// connection pool, starving a read - the query itself is fast, so a short
+// wait + one retry almost always succeeds. Non-timeout errors are not
+// retried (they won't get better on a second try).
+async function withRetry(fn, { tries = 2, delayMs = 400 } = {}) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const transient = /statement timeout|canceling statement|timeout|fetch failed|ECONNRESET/i.test(err.message || '');
+      if (!transient || i === tries - 1) throw err;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 class SupabaseStore {
   constructor() {
     this.client = getServiceClient();
@@ -221,10 +241,12 @@ class SupabaseStore {
 
   async getLeaderboard(metric = 'peakCCU', limit = 25, { tag = null, creatorCode = null } = {}) {
     const col = METRIC_COLUMNS[metric] || METRIC_COLUMNS.peakCCU;
-    let q = this.client.from('islands_with_latest').select('*').not(col, 'is', null);
-    if (tag) q = q.contains('tags', [tag]);
-    if (creatorCode) q = q.eq('creator_code', creatorCode);
-    const { data } = check(await q.order(col, { ascending: false }).limit(limit));
+    const data = await withRetry(async () => {
+      let q = this.client.from('islands_with_latest').select('*').not(col, 'is', null);
+      if (tag) q = q.contains('tags', [tag]);
+      if (creatorCode) q = q.eq('creator_code', creatorCode);
+      return check(await q.order(col, { ascending: false }).limit(limit)).data;
+    });
     return (data || []).map(rowToIslandWithLatest);
   }
 
@@ -234,14 +256,16 @@ class SupabaseStore {
   // thousands.
   async getMovers(metric = 'peakCCU', limit = 20, direction = 'up', { tag = null, creatorCode = null } = {}) {
     const col = METRIC_COLUMNS[metric] || METRIC_COLUMNS.peakCCU;
-    let mq = this.client
-      .from('islands_with_movement')
-      .select('*')
-      .not(`latest_${col}`, 'is', null)
-      .not(`prior_${col}`, 'is', null);
-    if (tag) mq = mq.contains('tags', [tag]);
-    if (creatorCode) mq = mq.eq('creator_code', creatorCode);
-    const { data } = check(await mq.order('latest_captured_at', { ascending: false }).limit(5000));
+    const data = await withRetry(async () => {
+      let mq = this.client
+        .from('islands_with_movement')
+        .select('*')
+        .not(`latest_${col}`, 'is', null)
+        .not(`prior_${col}`, 'is', null);
+      if (tag) mq = mq.contains('tags', [tag]);
+      if (creatorCode) mq = mq.eq('creator_code', creatorCode);
+      return check(await mq.order('latest_captured_at', { ascending: false }).limit(5000)).data;
+    });
     const rows = (data || []).map((row) => {
       const latest = movementRowToLatest(row);
       const previous = movementRowToPrior(row);

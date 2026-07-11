@@ -102,29 +102,6 @@
         </div>
       </div>
 
-      <!-- What you can do -->
-      <div class="feature-cards">
-        <button class="feature-card" data-go="leaderboard">
-          <div class="feature-ico">🏆</div>
-          <div class="feature-title">Leaderboards</div>
-          <div class="feature-desc">Rank every island by CCU, players, playtime, retention and more — filter by genre or creator.</div>
-        </button>
-        <button class="feature-card" data-go="movers">
-          <div class="feature-ico">📊</div>
-          <div class="feature-title">Movers</div>
-          <div class="feature-desc">See what's blowing up and what's fading — trends Epic's API can't show, because it keeps no history.</div>
-        </button>
-        <button class="feature-card" data-go="compare">
-          <div class="feature-ico">⚔️</div>
-          <div class="feature-title">Compare <span class="pro-tag">PRO</span></div>
-          <div class="feature-desc">Put your island head-to-head against any rival, metric by metric.</div>
-        </button>
-        <button class="feature-card" data-go="explore">
-          <div class="feature-ico">🔎</div>
-          <div class="feature-title">Track your island</div>
-          <div class="feature-desc">Look up your own island by code and save it — build the history Epic doesn't keep.</div>
-        </button>
-      </div>
     </section>
 
     <!-- ===================== LEADERBOARD ===================== -->
@@ -447,6 +424,7 @@
   </div>
   <div class="tag-row" id="drawer-tags"></div>
   <div class="filter-row" id="drawer-actions" style="margin-top:4px;"></div>
+  <div class="drawer-insight" id="drawer-insight" style="display:none;"></div>
   <div class="metric-grid" id="drawer-metrics"></div>
   <div class="chart-box">
     <div class="chart-caption" id="drawer-chart-caption">History (captured by this crawler only)</div>
@@ -461,11 +439,11 @@
     <h3 id="auth-title">Sign in</h3>
     <button class="close-btn" id="auth-close">close</button>
   </div>
-  <p class="panel-sub" id="auth-blurb">Sign in to save islands to your personal watchlist. Free, and your list stays with your account.</p>
+  <p class="panel-sub" id="auth-blurb">Save islands to your watchlist and track your maps over time. Free — your list stays with your account.</p>
   <form id="auth-form">
-    <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required style="width:100%; margin-bottom:8px;">
-    <input type="password" id="auth-password" placeholder="Password (at least 6 characters)" autocomplete="current-password" required minlength="6" style="width:100%; margin-bottom:8px;">
-    <button type="submit" class="tab-btn active" id="auth-submit" style="width:100%;">Sign in</button>
+    <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required>
+    <input type="password" id="auth-password" placeholder="Password (at least 6 characters)" autocomplete="current-password" required minlength="6">
+    <button type="submit" class="btn-primary" id="auth-submit" style="width:100%;">Sign in</button>
   </form>
   <div class="auth-msg" id="auth-msg"></div>
   <div class="auth-toggle">
@@ -491,7 +469,7 @@
     <li>Track <strong>unlimited</strong> islands (free tier: 3)</li>
     <li><strong>Full history</strong> on every chart (free tier: last 7 days)</li>
     <li><strong>CSV export</strong> of any leaderboard or list</li>
-    <li>AI-generated insights on your tracked islands</li>
+    <li><strong>5 AI insights a day</strong> (free tier: 1)</li>
   </ul>
   <button class="tab-btn active" id="upgrade-checkout" style="width:100%;">Continue to checkout</button>
   <div class="auth-msg" id="upgrade-msg"></div>

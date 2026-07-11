@@ -169,6 +169,72 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Per-user daily AI-insight usage counter. One row per (user, UTC day). The
+-- insights endpoint increments this and enforces the per-plan daily cap
+-- (free vs pro) so a full Opus request can't be run without bound. Only the
+-- service_role (the endpoint) writes it; a user may read their own count so
+-- the UI can show "N left today". Old rows can be cleaned up periodically but
+-- don't need to be - they're tiny.
+create table if not exists insight_usage (
+  user_id  uuid not null references auth.users (id) on delete cascade,
+  day      date not null,
+  count    int not null default 0,
+  primary key (user_id, day)
+);
+
+alter table insight_usage enable row level security;
+drop policy if exists "own insight usage select" on insight_usage;
+create policy "own insight usage select" on insight_usage for select using (auth.uid() = user_id);
+grant select on insight_usage to authenticated;
+grant all on insight_usage to service_role;
+
+-- Atomically increment-and-return today's count for a user, but only if it's
+-- still under the cap. Returns the new count on success, or -1 if the user is
+-- already at/over the cap (so the endpoint can reject without a race between
+-- separate read + write). SECURITY DEFINER so the endpoint can call it via the
+-- service role; it's keyed entirely by the passed user id + cap.
+create or replace function public.claim_insight(p_user uuid, p_cap int)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_count int;
+begin
+  insert into insight_usage (user_id, day, count)
+    values (p_user, (now() at time zone 'utc')::date, 1)
+  on conflict (user_id, day) do update
+    set count = insight_usage.count + 1
+    where insight_usage.count < p_cap
+  returning count into new_count;
+
+  if new_count is null then
+    return -1; -- at or over cap; nothing was incremented
+  end if;
+  return new_count;
+end;
+$$;
+
+grant execute on function public.claim_insight(uuid, int) to service_role;
+
+-- Give back a claimed slot when the downstream call (Claude) fails, so a user
+-- doesn't lose one of their few daily insights to our error. Floors at 0.
+create or replace function public.refund_insight(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update insight_usage
+    set count = greatest(count - 1, 0)
+  where user_id = p_user and day = (now() at time zone 'utc')::date;
+end;
+$$;
+
+grant execute on function public.refund_insight(uuid) to service_role;
+
 -- Row Level Security: this project has no end-user auth, and all writes come
 -- from the crawler using the service_role key (which bypasses RLS entirely).
 -- Enable RLS with a read-only policy for the anon/public key so the tables

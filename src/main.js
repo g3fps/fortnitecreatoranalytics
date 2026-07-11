@@ -24,37 +24,42 @@ const NO_CRAWL = process.argv.includes('--no-crawl') || process.env.NO_CRAWL ===
 
 let crawlInFlight = false;
 let currentCycle = null; // live progress of the in-flight cycle, or null
-let store;
+let crawlStore; // write path for the crawl loop (CrawlerStore, or null)
+let webStore;   // read path for the Express API (SupabaseStore / Store)
 let server;
 
-// Store selection:
-//   --no-crawl + Supabase  -> SupabaseStore, reads live from Postgres (so the
-//                             dashboard reflects a crawler running elsewhere).
-//   crawling + Supabase    -> CrawlerStore: loads the catalog into memory once
-//                             at boot for fast hot-loop reads, then writes every
-//                             change straight to Postgres (no local file). This
-//                             is the production crawler path.
-//   no Supabase configured -> local-file Store (dev / offline fallback).
+// Returns { crawlStore, webStore, label }:
+//   crawlStore - what the crawl loop writes through (null when --no-crawl).
+//   webStore   - what the Express API reads from (has the full read
+//                interface: getStats/getLeaderboard/getMovers/etc.).
+//
+// The split matters: CrawlerStore is a write-optimized in-memory catalog +
+// Postgres write-through, and deliberately does NOT implement the dashboard's
+// read queries. So even in crawler mode the web server reads through a
+// SupabaseStore (which queries Postgres directly and has every read method).
+// Both point at the same Supabase, so the local dashboard shows live data
+// while the crawler writes it.
+//
+//   --no-crawl + Supabase  -> web: SupabaseStore, no crawl.
+//   crawling  + Supabase   -> crawl: CrawlerStore (write), web: SupabaseStore (read).
+//   no Supabase configured -> local-file Store for both (dev / offline).
 async function buildStore() {
-  if (NO_CRAWL && supabaseSync.isEnabled()) {
+  if (supabaseSync.isEnabled()) {
     const { SupabaseStore } = require('./supabaseStore');
-    return { store: new SupabaseStore(), label: 'supabase (live, read-only)' };
-  }
-  if (!NO_CRAWL && supabaseSync.isEnabled()) {
+    const webStore = new SupabaseStore();
+    if (NO_CRAWL) {
+      return { crawlStore: null, webStore, label: 'supabase (live, read-only)' };
+    }
     const { CrawlerStore } = require('./crawlerStore');
-    const s = new CrawlerStore();
-    await s.load();
-    return { store: s, label: 'supabase (crawler: in-memory catalog + write-through)' };
+    const crawlStore = new CrawlerStore();
+    await crawlStore.load();
+    return { crawlStore, webStore, label: 'supabase (crawler writes; dashboard reads live)' };
   }
+  // No Supabase: local-file Store does both read and write.
   const s = new Store(DATA_DIR);
-  return { store: s, label: NO_CRAWL ? 'local files (read-only, frozen at boot)' : 'local files' };
+  return { crawlStore: NO_CRAWL ? null : s, webStore: s, label: NO_CRAWL ? 'local files (read-only)' : 'local files' };
 }
 
-// Populated via onProgress during a cycle with every island code that cycle
-// touched (catalog upsert and/or metrics poll), so the post-cycle Supabase
-// sync pushes exactly what changed instead of re-uploading the whole catalog
-// every time. Supabase itself is entirely optional (see supabaseSync.js) -
-// this bookkeeping costs nothing when it's not configured.
 async function runCrawlCycle(reason) {
   if (crawlInFlight) {
     console.log(`[crawler] skipping ${reason} cycle - previous cycle still running`);
@@ -69,7 +74,7 @@ async function runCrawlCycle(reason) {
   try {
     // No separate Supabase sync step: with CrawlerStore, crawlOnce's writes
     // (upsertIsland/addSnapshot/setCrawlState) go straight to Postgres.
-    const result = await crawlOnce(store, {
+    const result = await crawlOnce(crawlStore, {
       catalogPages: CATALOG_PAGES_PER_CYCLE,
       maxMetricsPerCycle: MAX_METRICS_PER_CYCLE,
       metricsDelayMs: METRICS_DELAY_MS,
@@ -93,7 +98,7 @@ async function runCrawlCycle(reason) {
         `${result.metricsPolled} polled, ${result.metricsWritten} new snapshot(s), ` +
         `${result.metricsNotFound} not found, ${result.errors.length} error(s)`
     );
-    await store.recordCrawlCycle({
+    await crawlStore.recordCrawlCycle({
       reason,
       startedAt: startedAtIso,
       finishedAt: finishedAtIso,
@@ -109,7 +114,7 @@ async function runCrawlCycle(reason) {
   } catch (err) {
     console.error('[crawler] cycle failed unexpectedly:', err);
     try {
-      await store.recordCrawlCycle({
+      await crawlStore.recordCrawlCycle({
         reason,
         startedAt: startedAtIso,
         finishedAt: new Date().toISOString(),
@@ -167,9 +172,12 @@ function startStallMonitor() {
 // load completes before the crawl loop starts.
 async function bootstrap() {
   const built = await buildStore();
-  store = built.store;
+  crawlStore = built.crawlStore;
+  webStore = built.webStore;
 
-  const app = createServer(store, {
+  // The Express API reads through webStore (full read interface); the crawl
+  // loop writes through crawlStore.
+  const app = createServer(webStore, {
     crawlIntervalMs: NO_CRAWL ? null : CRAWL_INTERVAL_MS,
     getCrawlProgress: () => ({ inProgress: crawlInFlight, current: currentCycle }),
   });

@@ -11,9 +11,11 @@
     "start": "node src/main.js",
     "serve": "node src/main.js --no-crawl",
     "crawl": "node scripts/crawl-once.js",
+    "crawler-status": "node scripts/crawler-status.js",
     "test": "node --test scripts/smoke-test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "@supabase/supabase-js": "^2.110.2",
     "express": "^4.19.2"
   },

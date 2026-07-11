@@ -148,9 +148,6 @@ $('overview-see-all').addEventListener('click', () => switchView('leaderboard'))
 $('overview-see-movers').addEventListener('click', () => switchView('movers'));
 $('hero-lookup-cta').addEventListener('click', () => switchView('explore'));
 $('hero-leaderboard-cta').addEventListener('click', () => switchView('leaderboard'));
-document.querySelectorAll('.feature-card').forEach((card) => {
-  card.addEventListener('click', () => switchView(card.dataset.go));
-});
 
 // ---------------------------------------------------------------- top bar status
 
@@ -1318,6 +1315,57 @@ async function loadDataView() {
   }
 }
 
+// ---------------------------------------------------------------- AI insights (Pro)
+
+async function runInsights(code, btn) {
+  const box = $('drawer-insight');
+  // Logged-out users must sign in first (free accounts still get 1/day). Pro
+  // status isn't checked here - the endpoint applies the free vs pro cap.
+  if (!currentUser) { openAuthModal(); return; }
+
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Thinking…';
+  box.style.display = 'block';
+  box.className = 'drawer-insight loading';
+  box.textContent = 'Generating insights from this island\'s data…';
+
+  try {
+    const { data: sess } = await sbClient.auth.getSession();
+    const token = sess?.session?.access_token;
+    const res = await fetch('/api/insights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      box.className = 'drawer-insight error';
+      if (data.notConfigured) box.textContent = 'AI insights are coming soon.';
+      else if (data.limitReached) {
+        box.textContent = data.error;
+        if (data.upgrade) { const b = document.createElement('button'); b.className = 'link-btn'; b.textContent = 'Upgrade to Pro'; b.style.marginLeft = '6px'; b.addEventListener('click', openUpgradeModal); box.appendChild(document.createElement('br')); box.appendChild(b); }
+      } else box.textContent = data.error || 'Could not generate insights right now.';
+      return;
+    }
+    box.className = 'drawer-insight';
+    box.textContent = data.insight || 'No insight returned.';
+    if (typeof data.remaining === 'number') {
+      const note = document.createElement('div');
+      note.style.cssText = 'margin-top:8px;font-size:10.5px;color:var(--muted);';
+      note.textContent = `${data.remaining} of ${data.cap} insights left today`;
+      box.appendChild(note);
+    }
+  } catch (err) {
+    console.error('runInsights failed', err);
+    box.className = 'drawer-insight error';
+    box.textContent = 'Could not reach the insights service.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
 // ---------------------------------------------------------------- detail drawer
 
 const drawer = $('drawer');
@@ -1437,6 +1485,20 @@ async function showDetail(code) {
       });
       actions.appendChild(trackBtn);
     }
+
+    // AI Insights. Free users get 1/day (a taste), Pro gets 5/day. Logged-out
+    // clicks route to sign-in. The endpoint enforces the caps; the button just
+    // starts the flow.
+    if (supabaseReady()) {
+      const aiBtn = document.createElement('button');
+      aiBtn.className = 'btn-ghost';
+      aiBtn.textContent = '✨ AI insights';
+      aiBtn.addEventListener('click', () => runInsights(island.code, aiBtn));
+      actions.appendChild(aiBtn);
+    }
+    // Clear any insight text from a previously-opened island.
+    clearChildren($('drawer-insight'));
+    $('drawer-insight').style.display = 'none';
 
     // The sparkline metric follows whatever the leaderboard is currently
     // showing; label it, and be honest when there's only one point to plot.

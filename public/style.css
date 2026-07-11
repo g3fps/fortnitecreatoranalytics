@@ -392,7 +392,8 @@ main {
 .btn-ghost:hover { color: var(--paper); border-color: var(--muted); }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
-select, input[type="search"], input[type="text"] {
+select,
+input[type="search"], input[type="text"], input[type="email"], input[type="password"] {
   padding: 8px 11px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -401,7 +402,12 @@ select, input[type="search"], input[type="text"] {
   font-size: 13px;
   font-family: inherit;
 }
-input[type="search"]::placeholder, input[type="text"]::placeholder { color: var(--muted); }
+input::placeholder { color: var(--muted); }
+input[type="search"]:focus, input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 .search-hero {
   width: 100%;
@@ -845,6 +851,32 @@ td.value { width: 180px; }
   margin-left: 4px;
 }
 
+.drawer-insight {
+  margin: 12px 0 4px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent-soft), transparent 80%);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--paper-dim);
+  white-space: pre-wrap;
+}
+.drawer-insight.loading { color: var(--muted); font-style: italic; }
+.drawer-insight.error { border-left-color: var(--bad); color: var(--bad); }
+.drawer-insight::before {
+  content: '✨ AI insight';
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.drawer-insight.loading::before, .drawer-insight.error::before { color: var(--muted); }
+
 /* ---------- modal (auth) ---------- */
 
 .modal-backdrop {
@@ -860,21 +892,46 @@ td.value { width: 180px; }
   position: fixed;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  width: min(380px, 92vw);
+  width: min(400px, 92vw);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 24px 70px -20px rgba(0,0,0,0.5);
+  border-radius: 16px;
+  box-shadow: 0 30px 90px -20px rgba(0,0,0,0.65);
   z-index: 31;
-  padding: 22px;
+  padding: 28px 26px 24px;
 }
 .modal.open { display: block; }
-.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.modal-head h3 { font-size: 16px; font-weight: 700; margin: 0; }
-.auth-msg { font-size: 12px; margin-top: 10px; min-height: 16px; }
+@media (prefers-reduced-motion: no-preference) {
+  .modal.open { animation: modal-in 0.16s ease; }
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.modal-head h3 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+
+/* Auth form: full-width, comfortable inputs, clear primary action. */
+#auth-modal .panel-sub { margin: 6px 0 18px; font-size: 12.5px; line-height: 1.5; }
+#auth-form input {
+  width: 100%;
+  padding: 11px 13px;
+  font-size: 14px;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+#auth-submit, #upgrade-checkout {
+  width: 100%;
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  margin-top: 2px;
+}
+.auth-msg { font-size: 12.5px; margin-top: 12px; min-height: 16px; }
 .auth-msg.error { color: var(--bad); }
 .auth-msg.success { color: var(--ok); }
-.auth-toggle { font-size: 12px; color: var(--muted); margin-top: 14px; text-align: center; }
+.auth-toggle { font-size: 12.5px; color: var(--muted); margin-top: 18px; text-align: center; }
 .link-btn {
   background: none;
   border: none;
