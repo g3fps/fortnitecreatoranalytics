@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/((?!api/insights).*)", "destination": "/api/index" }
+    { "source": "/((?!api/(insights|create-checkout-session|stripe-webhook)).*)", "destination": "/api/index" }
   ],
   "functions": {
     "api/index.js": {

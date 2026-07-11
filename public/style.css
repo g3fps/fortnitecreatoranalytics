@@ -877,6 +877,56 @@ td.value { width: 180px; }
 }
 .drawer-insight.loading::before, .drawer-insight.error::before { color: var(--muted); }
 
+/* ---------- Pro page ---------- */
+
+.nav-pro {
+  color: #f5a623 !important;
+  font-weight: 700;
+}
+.pro-page { max-width: 760px; margin: 0 auto; }
+.pro-hero {
+  text-align: center;
+  padding: 40px 24px 32px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin-bottom: 22px;
+  background:
+    radial-gradient(900px 300px at 50% -30%, rgba(245,166,35,0.12), transparent 60%),
+    linear-gradient(180deg, var(--panel), var(--ground));
+}
+.pro-eyebrow {
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #f5a623; margin-bottom: 12px;
+}
+.pro-title {
+  font-size: 30px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 12px;
+  text-wrap: balance;
+}
+@media (min-width: 720px) { .pro-title { font-size: 38px; } }
+.pro-sub { font-size: 14.5px; line-height: 1.6; color: var(--paper-dim); max-width: 54ch; margin: 0 auto; }
+.pro-price { margin: 6px 0 4px; }
+.pro-price-num { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+.pro-price-unit { font-size: 16px; color: var(--muted); margin-left: 2px; }
+.pro-price-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.pro-cta-note { font-size: 11.5px; color: var(--muted); margin-top: 10px; min-height: 14px; }
+
+.pro-compare {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.plan-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.plan-table th, .plan-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--line); }
+.plan-table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.plan-table th:not(:first-child), .plan-table td:not(:first-child) { text-align: center; width: 110px; }
+.plan-table tbody tr:last-child td { border-bottom: none; }
+.plan-pro-col, .plan-table td.pro-col { color: var(--paper); font-weight: 600; background: rgba(245,166,35,0.06); }
+.plan-table th.plan-pro-col { color: #f5a623; }
+.plan-table td.chk { font-weight: 700; }
+.plan-table td.chk:not(.muted) { color: var(--ok); }
+.plan-table td.muted { color: var(--muted); }
+.pro-footnote { text-align: center; font-size: 11.5px; color: var(--muted); margin: 18px 0 0; }
+
 /* ---------- modal (auth) ---------- */
 
 .modal-backdrop {

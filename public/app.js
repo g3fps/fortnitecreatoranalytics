@@ -105,7 +105,7 @@ function gatedExport(filename, rows) {
 
 // ---------------------------------------------------------------- nav / views
 
-const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'watchlist', 'data'];
+const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'watchlist', 'data', 'pro'];
 const loaders = {
   overview: loadOverview,
   leaderboard: loadLeaderboard,
@@ -116,6 +116,7 @@ const loaders = {
   explore: () => {},
   watchlist: loadWatchlist,
   data: loadDataView,
+  pro: loadProPage,
 };
 
 function switchView(name, { updateHash = true } = {}) {
@@ -1315,6 +1316,54 @@ async function loadDataView() {
   }
 }
 
+// ---------------------------------------------------------------- Pro page
+
+let proBilling = 'monthly';
+
+function renderProPrice() {
+  const p = PRICING.pro;
+  const el = $('pro-price');
+  if (proBilling === 'yearly') {
+    el.innerHTML = `<span class="pro-price-num">$${p.yearly}</span><span class="pro-price-unit">/year</span><div class="pro-price-sub">$${(p.yearly / 12).toFixed(2)}/mo, billed annually</div>`;
+  } else {
+    el.innerHTML = `<span class="pro-price-num">$${p.monthly}</span><span class="pro-price-unit">/month</span>`;
+  }
+}
+
+// Reflects the viewer's state on the Pro page: already-Pro sees a confirmation
+// instead of a buy button; logged-out/free see the upgrade CTA.
+function loadProPage() {
+  renderProPrice();
+  const cta = $('pro-cta');
+  const note = $('pro-cta-note');
+  if (currentUser && isPro) {
+    cta.textContent = "✓ You're on Pro";
+    cta.disabled = true;
+    note.textContent = 'Thanks for supporting UEFN Stats.';
+  } else {
+    cta.textContent = 'Get Pro';
+    cta.disabled = false;
+    note.textContent = currentUser ? '' : 'You\'ll create a free account first.';
+  }
+}
+
+function wireProPage() {
+  document.querySelectorAll('#pro-billing-toggle .billing-opt').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      proBilling = btn.dataset.billing;
+      document.querySelectorAll('#pro-billing-toggle .billing-opt').forEach((b) => b.classList.toggle('active', b === btn));
+      renderProPrice();
+    });
+  });
+  $('pro-cta').addEventListener('click', () => {
+    if (!currentUser) { openAuthModal(); return; }
+    if (isPro) return;
+    // Sync the modal's billing cycle to the page's, then open checkout.
+    billingCycle = proBilling;
+    openUpgradeModal();
+  });
+}
+
 // ---------------------------------------------------------------- AI insights (Pro)
 
 async function runInsights(code, btn) {
@@ -1625,6 +1674,11 @@ function applyPlanUi() {
   if (compareNav) {
     compareNav.classList.toggle('locked', !can('compare'));
   }
+  // Hide the Pro nav item for users who are already Pro (nothing to sell them).
+  const proNav = document.querySelector('.nav-item[data-view="pro"]');
+  if (proNav) proNav.style.display = isPro ? 'none' : '';
+  // If the Pro page is open, refresh its CTA to match the new plan state.
+  if ($('view-pro') && $('view-pro').classList.contains('active')) loadProPage();
 }
 
 async function trackIsland(code) {
@@ -1726,15 +1780,33 @@ function wireUpgradeUi() {
   });
   $('upgrade-checkout').addEventListener('click', async () => {
     const msg = $('upgrade-msg');
-    // Placeholder until Stripe is connected. When wired, this becomes a fetch
-    // to /api/create-checkout-session with { cycle: billingCycle } that
-    // returns a Stripe Checkout URL to redirect to.
-    if (!window.STRIPE_ENABLED) {
-      msg.className = 'auth-msg';
-      msg.textContent = 'Checkout isn\'t live yet — Pro is coming very soon.';
-      return;
+    const btn = $('upgrade-checkout');
+    if (!currentUser) { closeUpgradeModal(); openAuthModal(); return; }
+    msg.className = 'auth-msg';
+    msg.textContent = 'Opening secure checkout…';
+    btn.disabled = true;
+    try {
+      const { data: sess } = await sbClient.auth.getSession();
+      const token = sess?.session?.access_token;
+      const res = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+        body: JSON.stringify({ cycle: billingCycle }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        window.location.href = data.url; // -> Stripe Checkout
+        return;
+      }
+      msg.className = 'auth-msg error';
+      msg.textContent = data.notConfigured ? 'Checkout isn\'t live yet — coming very soon.' : (data.error || 'Could not start checkout.');
+    } catch (err) {
+      console.error('checkout failed', err);
+      msg.className = 'auth-msg error';
+      msg.textContent = 'Could not reach checkout. Please try again.';
+    } finally {
+      btn.disabled = false;
     }
-    // (Wired later.)
   });
 }
 function setAuthMode(mode) {
@@ -1890,6 +1962,7 @@ $('watchlist-export').addEventListener('click', () => {
 initSupabase();
 wireAuthUi();
 wireUpgradeUi();
+wireProPage();
 refreshStatus();
 loadTagCloud();
 // Honor a deep-link hash on load (e.g. someone shared /#leaderboard), else

@@ -31,12 +31,26 @@ async function main() {
   ].map((p) => p.then((r) => r)));
 
   const recent = (cycles || [])[0];
-  const healthy = recent && !recent.fatal && (recent.error_count || 0) === 0;
+  const lastFinishedOk = recent && !recent.fatal && (recent.error_count || 0) === 0;
+
+  // A cycle is "in progress" when the crawler recorded a start more recently
+  // than its last finish. Cycles don't log until they finish/fail, so without
+  // this a healthy long-running cycle looks identical to a stale crash.
+  const startedAt = cs && cs.last_crawl_started_at ? new Date(cs.last_crawl_started_at).getTime() : 0;
+  const finishedAt = cs && cs.last_crawl_finished_at ? new Date(cs.last_crawl_finished_at).getTime() : 0;
+  const inProgress = startedAt > finishedAt;
+
+  let overall;
+  if (inProgress) overall = `RUNNING a cycle now (started ${ago(cs.last_crawl_started_at)})`;
+  else if (!recent) overall = 'no cycles recorded yet';
+  else if (lastFinishedOk) overall = 'HEALTHY';
+  else if (recent.fatal) overall = 'last recorded cycle FATAL';
+  else overall = 'errors in last cycle';
 
   console.log('');
   console.log('  UEFN Stats — crawler status');
   console.log('  ' + '-'.repeat(40));
-  console.log(`  overall:        ${recent ? (healthy ? 'HEALTHY' : (recent.fatal ? 'CRASHING (last cycle FATAL)' : 'errors in last cycle')) : 'no cycles recorded yet'}`);
+  console.log(`  overall:        ${overall}`);
   console.log(`  cycles done:    ${cs ? cs.cycles_completed : '?'}`);
   console.log(`  last finished:  ${ago(cs && cs.last_crawl_finished_at)}`);
   console.log(`  islands tracked:${(tracked || 0).toLocaleString().padStart(10)}`);
@@ -50,9 +64,13 @@ async function main() {
     console.log(`    ${(r.started_at || '').slice(0, 19)}  [${r.reason}]  polled ${r.metrics_polled ?? '-'}, wrote ${r.metrics_written ?? '-'}, +${r.new_islands_discovered ?? '-'} new, ${tag}  (${dur})`);
   }
   console.log('');
-  if (!healthy && recent && recent.fatal) {
-    console.log('  ⚠  Last cycle failed. If you just changed code, restart the crawler');
-    console.log('     (Ctrl+C the npm start terminal, then `npm start`) to load the fix.');
+  if (inProgress) {
+    console.log('  ▶  A cycle is running now. It logs a result when it finishes -');
+    console.log('     re-run this in a bit to see the outcome.');
+    console.log('');
+  } else if (!lastFinishedOk && recent && recent.fatal) {
+    console.log('  ⚠  Last recorded cycle failed. If you just changed code, restart the');
+    console.log('     crawler (Ctrl+C the npm start terminal, then `npm start`).');
     console.log('');
   }
 }

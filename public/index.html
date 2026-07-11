@@ -28,6 +28,7 @@
     <button class="nav-item" data-view="explore">Explore</button>
     <button class="nav-item auth-only" data-view="watchlist" style="display:none;">My Islands</button>
     <button class="nav-item" data-view="data">About Data</button>
+    <button class="nav-item nav-pro" data-view="pro">Pro</button>
   </nav>
 
   <div class="topbar-right">
@@ -403,6 +404,43 @@
           because it was recorded as it happened. Stats update about once a day (which is as often as Epic's
           underlying numbers change). Not affiliated with or endorsed by Epic Games.
         </p>
+      </div>
+    </section>
+
+    <!-- ===================== PRO ===================== -->
+    <section class="view" id="view-pro">
+      <div class="pro-page">
+        <div class="pro-hero">
+          <div class="pro-eyebrow">UEFN Stats Pro</div>
+          <h1 class="pro-title">Serious tools for serious creators.</h1>
+          <p class="pro-sub">Everything in the free dashboard, plus the competitive edge: head-to-head comparison, unlimited tracking, full history, exports, and AI-generated insights on any island.</p>
+
+          <div class="billing-toggle" id="pro-billing-toggle" style="max-width:320px;margin:20px auto 8px;">
+            <button class="billing-opt active" data-billing="monthly">Monthly</button>
+            <button class="billing-opt" data-billing="yearly">Yearly <span class="billing-save">2 months free</span></button>
+          </div>
+          <div class="pro-price" id="pro-price">—</div>
+          <button class="btn-primary" id="pro-cta" style="min-width:220px;margin-top:16px;">Get Pro</button>
+          <div class="pro-cta-note" id="pro-cta-note"></div>
+        </div>
+
+        <div class="pro-compare">
+          <table class="plan-table">
+            <thead>
+              <tr><th>Feature</th><th>Free</th><th class="plan-pro-col">Pro</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Leaderboards, Movers, Browse, Creators</td><td class="chk">✓</td><td class="chk pro-col">✓</td></tr>
+              <tr><td>Look up &amp; track your own islands</td><td>3 islands</td><td class="pro-col">Unlimited</td></tr>
+              <tr><td>History depth on charts</td><td>Last 7 days</td><td class="pro-col">Full history</td></tr>
+              <tr><td><strong>Compare</strong> — head-to-head vs. any rival</td><td class="chk muted">—</td><td class="chk pro-col">✓</td></tr>
+              <tr><td>CSV export of any list</td><td class="chk muted">—</td><td class="chk pro-col">✓</td></tr>
+              <tr><td>AI insights (Opus-powered)</td><td>1 / day</td><td class="pro-col">5 / day</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="pro-footnote">Cancel anytime. Not affiliated with or endorsed by Epic Games.</p>
       </div>
     </section>
 
