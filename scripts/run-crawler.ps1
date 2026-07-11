@@ -28,6 +28,18 @@ function Write-Log($msg) {
   Add-Content -Path $log -Value $line
 }
 
+# Single-instance guard at the WRAPPER level. Task Scheduler (and stray manual
+# starts) can spawn several wrappers; if two run at once their node children
+# leapfrog on port 3742 and neither ever stays up. A named system mutex means
+# exactly one wrapper survives - any later wrapper acquires nothing and exits
+# immediately, so there is never a second restart loop to fight the first.
+$createdNew = $false
+$mutex = New-Object System.Threading.Mutex($true, 'Global\UEFNStatsCrawlerWrapper', [ref]$createdNew)
+if (-not $createdNew) {
+  Write-Log 'another run-crawler wrapper is already running - this one is exiting (single-instance guard).'
+  exit 0
+}
+
 Write-Log "run-crawler starting (node: $node, root: $root)"
 
 # node writes its own stdout/stderr to a separate file via Start-Process's
