@@ -33,6 +33,22 @@ function clearChildren(el) {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
 
+// Lightweight transient toast (bottom-center). Used for auth confirmations
+// and other one-off notices.
+function showToast(text, kind = 'ok') {
+  let host = document.getElementById('toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-host';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = text;
+  host.appendChild(t);
+  setTimeout(() => { t.classList.add('leaving'); setTimeout(() => t.remove(), 300); }, 3200);
+}
+
 function fmtNumber(value) {
   if (value === null || value === undefined) return '—';
   if (typeof value !== 'number') return String(value);
@@ -105,7 +121,7 @@ function gatedExport(filename, rows) {
 
 // ---------------------------------------------------------------- nav / views
 
-const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'watchlist', 'data', 'pro'];
+const views = ['overview', 'leaderboard', 'movers', 'creators', 'compare', 'browse', 'explore', 'watchlist', 'data', 'pro', 'account'];
 const loaders = {
   overview: loadOverview,
   leaderboard: loadLeaderboard,
@@ -117,9 +133,19 @@ const loaders = {
   watchlist: loadWatchlist,
   data: loadDataView,
   pro: loadProPage,
+  account: loadAccountPage,
 };
 
-function switchView(name, { updateHash = true } = {}) {
+// Path-based routing. Every view has a real URL (/leaderboard, /pro, …) and
+// individual islands are shareable at /island/<code>. Overview is "/". A
+// Vercel rewrite serves index.html for every path so these links work on
+// refresh and when shared. updateUrl:false is used when we're reacting to the
+// URL (popstate / initial load) rather than driving it.
+function pathForView(name) {
+  return name === 'overview' ? '/' : `/${name}`;
+}
+
+function switchView(name, { updateUrl = true } = {}) {
   if (!views.includes(name)) name = 'overview';
   for (const v of views) {
     $(`view-${v}`).classList.toggle('active', v === name);
@@ -127,23 +153,33 @@ function switchView(name, { updateHash = true } = {}) {
   document.querySelectorAll('.nav-item').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === name);
   });
-  // Reflect the view in the URL hash so a given screen is linkable/shareable
-  // and survives a refresh - important for a tool people are meant to send
-  // each other ("look at this leaderboard").
-  if (updateHash && `#${name}` !== window.location.hash) {
-    history.replaceState(null, '', `#${name}`);
+  if (updateUrl) {
+    const path = pathForView(name);
+    if (window.location.pathname !== path) history.pushState({ view: name }, '', path);
   }
   loaders[name]?.();
+}
+
+// Resolve the current URL path to an action: a view, or an island deep-link.
+function routeFromPath({ updateUrl = false } = {}) {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  const islandMatch = path.match(/^\/island\/(.+)$/);
+  if (islandMatch) {
+    const code = decodeURIComponent(islandMatch[1]);
+    // Show a base view behind the drawer, then open the island.
+    switchView('overview', { updateUrl: false });
+    showDetail(code, { fromUrl: true });
+    return;
+  }
+  const name = path === '/' ? 'overview' : path.slice(1);
+  switchView(views.includes(name) ? name : 'overview', { updateUrl });
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
 
-window.addEventListener('hashchange', () => {
-  const name = window.location.hash.replace(/^#/, '');
-  if (views.includes(name)) switchView(name, { updateHash: false });
-});
+window.addEventListener('popstate', () => routeFromPath({ updateUrl: false }));
 
 $('overview-see-all').addEventListener('click', () => switchView('leaderboard'));
 $('overview-see-movers').addEventListener('click', () => switchView('movers'));
@@ -1364,6 +1400,77 @@ function wireProPage() {
   });
 }
 
+// ---------------------------------------------------------------- account settings
+
+// Renders the /account view: who's signed in, their plan, and a way to manage
+// billing (Stripe Customer Portal for Pro) or upgrade (free). Requires a login;
+// logged-out visitors get bounced to the auth modal.
+function loadAccountPage() {
+  if (!currentUser) {
+    openAuthModal();
+    switchView('overview');
+    return;
+  }
+  $('account-email').textContent = currentUser.email || '—';
+  $('account-plan').textContent = isPro ? 'Pro' : 'Free';
+  $('account-msg').textContent = '';
+  $('account-msg').className = 'auth-msg';
+
+  const manageBtn = $('account-manage');
+  const upgradeBtn = $('account-upgrade');
+  const desc = $('account-sub-desc');
+  if (isPro) {
+    desc.textContent = "You're on Pro. Update your card, view invoices, or cancel anytime.";
+    manageBtn.style.display = '';
+    upgradeBtn.style.display = 'none';
+  } else {
+    desc.textContent = 'Upgrade to Pro for Compare, larger watchlists, exports, and more AI insights per day.';
+    manageBtn.style.display = 'none';
+    upgradeBtn.style.display = '';
+  }
+}
+
+function wireAccountPage() {
+  $('account-signout').addEventListener('click', async () => {
+    await sbClient.auth.signOut();
+    switchView('overview');
+  });
+  $('account-upgrade').addEventListener('click', () => {
+    billingCycle = 'monthly';
+    openUpgradeModal();
+  });
+  $('account-manage').addEventListener('click', async () => {
+    const btn = $('account-manage');
+    const msg = $('account-msg');
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'Opening…';
+    msg.className = 'auth-msg';
+    msg.textContent = '';
+    try {
+      const { data: sess } = await sbClient.auth.getSession();
+      const token = sess?.session?.access_token;
+      const res = await fetch('/api/create-portal-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        msg.className = 'auth-msg error';
+        msg.textContent = data.error || 'Could not open billing portal.';
+        return;
+      }
+      window.location.href = data.url;
+    } catch (err) {
+      msg.className = 'auth-msg error';
+      msg.textContent = 'Could not open billing portal.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+}
+
 // ---------------------------------------------------------------- AI insights (Pro)
 
 async function runInsights(code, btn) {
@@ -1420,6 +1527,10 @@ async function runInsights(code, btn) {
 const drawer = $('drawer');
 const drawerBackdrop = $('drawer-backdrop');
 
+// The view URL to restore to when the island drawer closes (so closing an
+// island opened from /leaderboard returns the URL to /leaderboard).
+let drawerReturnPath = '/';
+
 function openDrawer() {
   drawer.classList.add('open');
   drawerBackdrop.classList.add('open');
@@ -1427,6 +1538,10 @@ function openDrawer() {
 function closeDrawer() {
   drawer.classList.remove('open');
   drawerBackdrop.classList.remove('open');
+  // Restore the URL to whatever view is behind the drawer.
+  if (window.location.pathname.startsWith('/island/')) {
+    history.pushState(null, '', drawerReturnPath);
+  }
 }
 $('drawer-close').addEventListener('click', closeDrawer);
 drawerBackdrop.addEventListener('click', closeDrawer);
@@ -1434,7 +1549,19 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeDrawer();
 });
 
-async function showDetail(code) {
+async function showDetail(code, { fromUrl = false } = {}) {
+  // Give the island a shareable URL. When opened from a click, remember the
+  // current path to return to on close; when opened FROM a URL (deep link /
+  // back button), don't push a duplicate history entry.
+  if (!fromUrl) {
+    if (!window.location.pathname.startsWith('/island/')) drawerReturnPath = window.location.pathname || '/';
+    const islandPath = `/island/${encodeURIComponent(code)}`;
+    if (window.location.pathname !== islandPath) history.pushState(null, '', islandPath);
+  }
+  return showDetailImpl(code);
+}
+
+async function showDetailImpl(code) {
   try {
     const [island, historyResp] = await Promise.all([
       fetchJson(`/api/islands/${encodeURIComponent(code)}`),
@@ -1491,7 +1618,7 @@ async function showDetail(code) {
     clearChildren(actions);
     if (island.latest) {
       const cmpBtn = document.createElement('button');
-      cmpBtn.className = 'btn-ghost';
+      cmpBtn.className = 'drawer-action-btn';
       cmpBtn.textContent = compareCodes.includes(island.code) ? '✓ In compare' : '+ Add to compare';
       cmpBtn.disabled = compareCodes.includes(island.code) || compareCodes.length >= COMPARE_MAX;
       cmpBtn.addEventListener('click', async () => {
@@ -1503,7 +1630,7 @@ async function showDetail(code) {
     }
     if (island.creatorCode) {
       const creatorBtn = document.createElement('button');
-      creatorBtn.className = 'btn-ghost';
+      creatorBtn.className = 'drawer-action-btn';
       creatorBtn.textContent = `See all by ${island.creatorCode} →`;
       creatorBtn.addEventListener('click', () => {
         closeDrawer();
@@ -1518,7 +1645,7 @@ async function showDetail(code) {
     // doing nothing.
     if (supabaseReady()) {
       const trackBtn = document.createElement('button');
-      trackBtn.className = 'btn-ghost';
+      trackBtn.className = 'drawer-action-btn';
       trackBtn.setAttribute('data-track-code', island.code);
       trackBtn.textContent = watchlistCodes.has(island.code) ? '★ Tracking (remove)' : '☆ Track this island';
       trackBtn.addEventListener('click', async () => {
@@ -1540,8 +1667,8 @@ async function showDetail(code) {
     // starts the flow.
     if (supabaseReady()) {
       const aiBtn = document.createElement('button');
-      aiBtn.className = 'btn-ghost';
-      aiBtn.textContent = '✨ AI insights';
+      aiBtn.className = 'drawer-ai-btn';
+      aiBtn.innerHTML = '<span class="ai-spark">✨</span> AI insights';
       aiBtn.addEventListener('click', () => runInsights(island.code, aiBtn));
       actions.appendChild(aiBtn);
     }
@@ -1614,9 +1741,28 @@ function initSupabase() {
     console.warn('Supabase not configured/loaded; auth features disabled.');
     return;
   }
-  sbClient = window.supabase.createClient(cfg.url, cfg.anonKey);
+  // detectSessionInUrl (default true) means clicking the email-confirmation
+  // link lands the user here already signed in - onAuthStateChange fires with
+  // the new session and applyAuthState logs them in. No manual re-login.
+  sbClient = window.supabase.createClient(cfg.url, cfg.anonKey, {
+    auth: { detectSessionInUrl: true, flowType: 'pkce' },
+  });
+
+  // If we arrived from an email confirmation, Supabase leaves auth tokens in
+  // the URL hash. Once the session is established we strip them so they don't
+  // linger in the address bar or collide with our #view hash routing, and we
+  // show a friendly "you're in" note.
+  const arrivedFromEmail = /access_token=|type=signup|type=recovery/.test(window.location.hash);
+
   sbClient.auth.getSession().then(({ data }) => applyAuthState(data.session));
-  sbClient.auth.onAuthStateChange((_event, session) => applyAuthState(session));
+  sbClient.auth.onAuthStateChange((event, session) => {
+    applyAuthState(session);
+    if (arrivedFromEmail && session && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+      // Strip the auth tokens from the URL, land on a clean home path.
+      history.replaceState(null, '', '/');
+      showToast('Email confirmed — you\'re signed in.');
+    }
+  });
 }
 
 async function applyAuthState(session) {
@@ -1632,8 +1778,8 @@ async function applyAuthState(session) {
     btn.textContent = 'Sign in';
     isPro = false;
     watchlistCodes = new Set();
-    // If they were on My Islands when they signed out, bounce to Overview.
-    if ($('view-watchlist').classList.contains('active')) switchView('overview');
+    // If they were on a login-only view when they signed out, bounce to Overview.
+    if ($('view-watchlist').classList.contains('active') || $('view-account').classList.contains('active')) switchView('overview');
   }
   applyPlanUi();
   // Reflect track/untrack state anywhere it's currently shown.
@@ -1679,6 +1825,8 @@ function applyPlanUi() {
   if (proNav) proNav.style.display = isPro ? 'none' : '';
   // If the Pro page is open, refresh its CTA to match the new plan state.
   if ($('view-pro') && $('view-pro').classList.contains('active')) loadProPage();
+  // Same for the account page (plan label + manage/upgrade buttons).
+  if (currentUser && $('view-account') && $('view-account').classList.contains('active')) loadAccountPage();
 }
 
 async function trackIsland(code) {
@@ -1732,6 +1880,7 @@ let authMode = 'signin'; // or 'signup'
 function openAuthModal() {
   $('auth-msg').textContent = '';
   $('auth-msg').className = 'auth-msg';
+  $('auth-resend-row').style.display = 'none'; // reset - only shows when a confirm is pending
   $('auth-backdrop').classList.add('open');
   $('auth-modal').classList.add('open');
   $('auth-email').focus();
@@ -1858,7 +2007,8 @@ function wireAuthUi() {
           setTimeout(closeAuthModal, 900);
         } else {
           msg.className = 'auth-msg success';
-          msg.textContent = 'Check your email to confirm your account, then sign in.';
+          msg.textContent = 'Check your email to confirm your account. (Check spam too.)';
+          showResend(email); // offer a resend in case it didn't arrive
         }
       } else {
         const { error } = await sbClient.auth.signInWithPassword({ email, password });
@@ -1870,10 +2020,39 @@ function wireAuthUi() {
     } catch (err) {
       msg.className = 'auth-msg error';
       msg.textContent = err.message || 'Something went wrong.';
+      // "Email not confirmed" on sign-in -> offer to resend the link.
+      if (/not confirmed|confirm/i.test(err.message || '')) showResend(email);
     } finally {
       $('auth-submit').disabled = false;
     }
   });
+
+  $('auth-resend').addEventListener('click', async () => {
+    const email = $('auth-email').value.trim();
+    if (!email) return;
+    const link = $('auth-resend');
+    link.disabled = true;
+    link.textContent = 'Sending…';
+    try {
+      const { error } = await sbClient.auth.resend({ type: 'signup', email });
+      if (error) throw error;
+      $('auth-msg').className = 'auth-msg success';
+      $('auth-msg').textContent = 'Confirmation email re-sent. Check your inbox (and spam).';
+    } catch (err) {
+      $('auth-msg').className = 'auth-msg error';
+      $('auth-msg').textContent = err.message || 'Could not resend right now.';
+    } finally {
+      link.disabled = false;
+      link.textContent = 'Resend confirmation email';
+    }
+  });
+}
+
+// Reveal the "resend confirmation email" link (hidden until a confirmation is
+// actually pending, so it doesn't clutter the sign-in form).
+function showResend() {
+  const r = $('auth-resend-row');
+  if (r) r.style.display = 'block';
 }
 
 // ---- My Islands view ----
@@ -1963,16 +2142,14 @@ initSupabase();
 wireAuthUi();
 wireUpgradeUi();
 wireProPage();
+wireAccountPage();
 refreshStatus();
 loadTagCloud();
-// Honor a deep-link hash on load (e.g. someone shared /#leaderboard), else
-// land on Overview. Always loads Overview's data too so the nav counts/status
-// are populated regardless of which view is shown first.
+// Honor the URL path on load (a shared /leaderboard or /island/<code>), else
+// land on Overview. Always loads Overview's data too so nav counts/status are
+// populated regardless of which view shows first.
 loadOverview();
-const initialView = window.location.hash.replace(/^#/, '');
-if (views.includes(initialView) && initialView !== 'overview') {
-  switchView(initialView, { updateHash: false });
-}
+routeFromPath({ updateUrl: false });
 setInterval(refreshStatus, 15000);
 setInterval(() => {
   const active = views.find((v) => $(`view-${v}`).classList.contains('active'));

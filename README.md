@@ -175,10 +175,17 @@ node scripts/apply-schema.js          # applies db/schema.sql
 node scripts/migrate-to-supabase.js   # backfills existing local data, if any
 ```
 
-**Accounts (optional).** The dashboard is fully usable logged-out — accounts
-only add a personal "My Islands" watchlist. Auth is Supabase Auth, run
-entirely in the browser with the public anon key; no credentials or user
-data pass through this app's own API. To enable it:
+**Accounts + Pro.** The dashboard is fully usable logged-out. Signing in adds
+a personal "My Islands" watchlist, an **Account** page (`/account` — email,
+plan status, sign out, and "Manage subscription" which opens the Stripe
+Customer Portal), and unlocks the paid **Pro** tier. Auth is Supabase Auth,
+run entirely in the browser with the public anon key; no credentials pass
+through this app's own API. Billing is Stripe subscriptions:
+`api/create-checkout-session.js` opens Checkout, `api/stripe-webhook.js` is
+the only place `is_pro` flips (on subscription created/updated/deleted), and
+`api/create-portal-session.js` returns a Customer Portal URL so Pro users
+self-manage (change card, cancel, view invoices). Pricing is $19/mo or
+$190/yr. To enable accounts:
 
 1. In the Supabase dashboard → **Authentication → Providers**, enable
    **Email**. (Turn "Confirm email" on or off to taste — off is smoother for
@@ -299,16 +306,13 @@ and one-click "add to compare" / "see all by this creator").
   find them is to crawl the whole catalog and rank what you find yourself.
   Coverage (and therefore leaderboard quality) is a function of how much of
   the catalog has been crawled.
-- **No auth, no accounts, no billing yet.** Everyone who hits the Vercel URL
-  sees the same public data. A premium tier (deeper history / faster
-  refresh for tracked islands, portfolio tracking across more islands and
-  creators, exports/API access) is the intended direction but isn't built:
-  no user accounts, no Stripe integration, no gating logic exists yet.
-  Worth knowing when that gets designed: "faster refresh" is *technically*
-  available today — `fetchLatestMetrics()` hardcodes the `day` bucket, and
-  Epic's same endpoint also serves `hour` and `minute`. Polling those for a
-  small set of paid-tier islands is a bounded, additive change, not a
-  rearchitecture.
+- **Faster refresh for paid tiers isn't wired yet.** Accounts, the Pro tier,
+  and Stripe billing all ship (see the Accounts + Pro section above), but
+  every island is still polled on the same `day` bucket. Worth knowing when
+  per-tier refresh gets designed: it's *technically* available today —
+  `fetchLatestMetrics()` hardcodes the `day` bucket, and Epic's same endpoint
+  also serves `hour` and `minute`. Polling those for a small set of paid-tier
+  islands is a bounded, additive change, not a rearchitecture.
 - **The crawler still holds the whole catalog in memory.** `src/crawlerStore.js`
   loads every island at boot (a ~35-40s parallelized read from Supabase at
   ~280k islands) so the polling hot loop's reads are instant, then writes
