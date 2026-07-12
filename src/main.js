@@ -161,10 +161,39 @@ async function runCrawlCycle(reason) {
 // schedule later and later - it just eats into that day's wait. If a cycle
 // somehow runs longer than the full interval, the next one starts right
 // away rather than waiting an extra day on top.
+//
+// The schedule is anchored to crawl_state.last_crawl_started_at in Postgres,
+// not to process uptime, so it survives restarts and reboots. Without that, a
+// reboot would immediately re-run a full ~90 min sweep even if one had just
+// completed - re-polling every island for data Epic won't have changed (its
+// `day` bucket yields one value per island per day), which is pure waste.
 let shuttingDown = false;
+
+// ms until the next cycle is due, given when the last one started. 0 = due now.
+function msUntilNextCycle() {
+  const lastStartedAt = crawlStore?.getCrawlState?.()?.lastCrawlStartedAt;
+  if (!lastStartedAt) return 0;
+  const elapsed = Date.now() - new Date(lastStartedAt).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return 0;
+  return Math.max(CRAWL_INTERVAL_MS - elapsed, 0);
+}
+
 async function loop() {
   let firstRun = true;
   while (!shuttingDown) {
+    // On a fresh process, honour the persisted schedule instead of always
+    // crawling on startup.
+    if (firstRun) {
+      const dueInMs = msUntilNextCycle();
+      if (dueInMs > 0) {
+        console.log(
+          `[crawler] last cycle started ${((CRAWL_INTERVAL_MS - dueInMs) / 3600000).toFixed(1)}h ago - not due yet; next cycle in ${(dueInMs / 60000).toFixed(0)} min.`
+        );
+        await new Promise((resolve) => setTimeout(resolve, dueInMs));
+        if (shuttingDown) break;
+      }
+    }
+
     const cycleStartedAt = Date.now();
     await runCrawlCycle(firstRun ? 'startup' : 'scheduled');
     firstRun = false;
