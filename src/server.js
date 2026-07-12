@@ -90,6 +90,40 @@ function createServer(store, options = {}) {
     res.json({ ok: true, uptimeSeconds: Math.round(process.uptime()) });
   });
 
+  // ---- private crawler console (localhost only) ----
+  // Crawler internals (live poll progress, error samples, coverage) are for the
+  // operator, not the public. These routes only answer requests that came from
+  // the loopback interface, so they are unreachable from the deployed site even
+  // though the same Express app runs there.
+  function localOnly(req, res, next) {
+    const ip = req.socket?.remoteAddress || '';
+    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    if (!isLoopback) return res.status(404).send('Not found');
+    next();
+  }
+
+  app.get(
+    '/api/crawler',
+    localOnly,
+    ah(async (req, res) => {
+      const [stats, cycles] = await Promise.all([store.getStats(), store.getCrawlLog(10)]);
+      res.set('Cache-Control', 'no-store');
+      res.json({ ...stats, crawlIntervalMs, crawlProgress: getCrawlProgress(), cycles, now: new Date().toISOString() });
+    })
+  );
+
+  app.get('/crawler', localOnly, (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'crawler.html'));
+  });
+
+  // crawler.html lives in public/, which express.static would happily serve to
+  // ANYONE - that would expose the console on uefnstats.com and defeat the
+  // localhost guard above. Block the raw file path outright; /crawler (guarded)
+  // is the only way in.
+  app.get('/crawler.html', localOnly, (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'crawler.html'));
+  });
+
   app.get(
     '/api/stats',
     ah(async (req, res) => {

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crawler console — UEFN Stats</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0a0c11; color: #e7e9ee;
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 34px 22px 70px; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.02em; }
+  .sub { color: #676d80; font-size: 12.5px; margin: 0 0 24px; }
+  .sub .private { color: #d9a441; }
+
+  .banner { display: flex; align-items: center; gap: 13px; border: 1px solid #232734;
+    border-radius: 12px; padding: 15px 17px; margin-bottom: 8px; background: #12151c; }
+  .banner.alert { border-color: #e5484d; background: rgba(229,72,77,0.07); }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+  .dot.green { background: #2fbf71; animation: pulse 1.6s ease-in-out infinite; }
+  .dot.amber { background: #d9a441; }
+  .dot.red   { background: #e5484d; }
+  .dot.gray  { background: #676d80; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .state { font-size: 16px; font-weight: 650; }
+  .detail { color: #a2a8b8; font-size: 12.5px; margin-top: 2px; }
+
+  .bar { height: 7px; background: #1c202b; border-radius: 20px; overflow: hidden; margin: 14px 0 6px; }
+  .bar > i { display: block; height: 100%; background: linear-gradient(90deg,#4c7dff,#7aa0ff);
+             border-radius: 20px; width: 0; transition: width .4s ease; }
+  .barline { display: flex; justify-content: space-between; font-size: 12px; color: #a2a8b8; margin-bottom: 20px; }
+  .barline b { color: #e7e9ee; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px,1fr)); gap: 11px; margin-bottom: 24px; }
+  .card { border: 1px solid #232734; border-radius: 10px; padding: 12px 14px; background: #12151c; }
+  .card .k { color: #676d80; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .card .v { font-size: 19px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .v.sm { font-size: 14px; font-weight: 550; }
+
+  h2 { font-size: 12px; color: #676d80; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .scroll { overflow-x: auto; border: 1px solid #232734; border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #1c202b; white-space: nowrap; }
+  th { color: #676d80; font-weight: 600; background: #0f1219; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .pill.ok { background: rgba(47,191,113,.14); color: #4bd48a; }
+  .pill.err { background: rgba(229,72,77,.14); color: #f0676b; }
+  .pill.warn { background: rgba(217,164,65,.16); color: #e0b45c; }
+  .foot { margin-top: 22px; color: #4a5060; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Crawler console</h1>
+  <p class="sub"><span class="private">Private</span> — localhost only, never served on uefnstats.com. Refreshing every 2s.</p>
+
+  <div class="banner" id="banner">
+    <span class="dot gray" id="dot"></span>
+    <div>
+      <div class="state" id="state">Connecting…</div>
+      <div class="detail" id="detail">Reading crawler state…</div>
+    </div>
+  </div>
+
+  <div id="progress" style="display:none;">
+    <div class="bar"><i id="barfill"></i></div>
+    <div class="barline">
+      <span><b id="p-polled">0</b> / <b id="p-total">?</b> polled &middot; <b id="p-written">0</b> written</span>
+      <span id="p-rate">—</span>
+    </div>
+  </div>
+
+  <div class="grid" id="cards"></div>
+
+  <h2>Recent cycles</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Started</th><th>Reason</th><th class="num">Polled</th><th class="num">Wrote</th>
+        <th class="num">New</th><th class="num">Time</th><th>Result</th>
+      </tr></thead>
+      <tbody id="cycles"><tr><td colspan="7" style="color:#676d80;">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const n = (v) => (v == null ? 0 : v).toLocaleString();
+
+function ago(iso, nowMs) {
+  if (!iso) return 'never';
+  const s = Math.max(0, Math.round((nowMs - new Date(iso).getTime()) / 1000));
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+}
+function secs(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + (s % 60) + 's';
+}
+
+// Track poll rate across refreshes so we can show islands/sec and, crucially,
+// tell a MOVING cycle apart from a WEDGED one.
+let prev = null;
+
+async function load() {
+  let d;
+  try {
+    const r = await fetch('/api/crawler', { cache: 'no-store' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    d = await r.json();
+  } catch (err) {
+    setBanner('red', 'Crawler not reachable', 'The crawler process is not running (or the server is down).', true);
+    $('progress').style.display = 'none';
+    return;
+  }
+
+  const now = Date.now();
+  const prog = d.crawlProgress || {};
+  const cur = prog.current;
+  const cs = d.crawlState || {};
+
+  if (prog.inProgress && cur) {
+    // THE important signal: is the heartbeat advancing? A cycle whose
+    // lastProgressAt has frozen is wedged, even though it claims to be running.
+    const heartbeatAgeS = (now - new Date(cur.lastProgressAt || cur.startedAt).getTime()) / 1000;
+    const runningMs = now - new Date(cur.startedAt).getTime();
+    const polled = cur.metricsPolled || 0;
+    const total = cur.totalCandidates;
+
+    let rate = '—';
+    if (prev && prev.polled != null && polled > prev.polled) {
+      const dt = (now - prev.t) / 1000;
+      if (dt > 0) rate = ((polled - prev.polled) / dt).toFixed(1) + ' islands/sec';
+    }
+    prev = { polled, t: now };
+
+    if (heartbeatAgeS > 120) {
+      setBanner('red', 'STALLED — no progress for ' + Math.round(heartbeatAgeS) + 's',
+        'Cycle has been "running" ' + secs(runningMs) + ' but nothing has moved. It is wedged; it will be auto-restarted at the hard limit.', true);
+    } else {
+      setBanner('green', 'Crawling — ' + (cur.phase || 'working'),
+        'Cycle running ' + secs(runningMs) + '. Last progress ' + Math.round(heartbeatAgeS) + 's ago.');
+    }
+
+    $('progress').style.display = '';
+    $('p-polled').textContent = n(polled);
+    $('p-total').textContent = total ? n(total) : '?';
+    $('p-written').textContent = n(cur.metricsWritten);
+    $('p-rate').textContent = rate;
+    $('barfill').style.width = total ? Math.min(100, (polled / total) * 100) + '%' : '0%';
+  } else {
+    prev = null;
+    $('progress').style.display = 'none';
+    const lastFin = cs.lastCrawlFinishedAt;
+    const recent = (d.cycles || [])[0];
+    if (recent && recent.fatal) {
+      setBanner('red', 'Last cycle failed', 'Ended fatally ' + ago(lastFin, now) + '. Waiting for restart.', true);
+    } else if (!lastFin) {
+      setBanner('gray', 'No cycles yet', 'The crawler has not completed a cycle.');
+    } else {
+      setBanner('amber', 'Idle — between cycles', 'Last cycle finished ' + ago(lastFin, now) + '.');
+    }
+  }
+
+  const cov = d.islandsTracked ? ((d.islandsWithData / d.islandsTracked) * 100).toFixed(1) : '0';
+  $('cards').innerHTML = [
+    card('Cycles done', n(cs.cyclesCompleted)),
+    card('Islands tracked', n(d.islandsTracked)),
+    card('With data', n(d.islandsWithData) + ' (' + cov + '%)', true),
+    card('Snapshots', n(d.snapshotCount)),
+    card('Newest reading', ago(d.newestSnapshotAt, now), true),
+    card('Last finished', ago(cs.lastCrawlFinishedAt, now), true),
+  ].join('');
+
+  const cyc = d.cycles || [];
+  $('cycles').innerHTML = cyc.length ? cyc.map((r) => {
+    const dur = r.durationMs != null ? Math.round(r.durationMs / 1000) + 's'
+      : (r.finishedAt && r.startedAt) ? Math.round((new Date(r.finishedAt) - new Date(r.startedAt)) / 1000) + 's' : '—';
+    const pill = r.fatal ? '<span class="pill err">FATAL</span>'
+      : (r.errorCount || 0) > 0 ? '<span class="pill warn">' + r.errorCount + ' err</span>'
+      : '<span class="pill ok">ok</span>';
+    return '<tr><td>' + (r.startedAt ? new Date(r.startedAt).toLocaleString() : '—') + '</td>'
+      + '<td>' + (r.reason || '—') + '</td>'
+      + '<td class="num">' + (r.metricsPolled ?? '—') + '</td>'
+      + '<td class="num">' + (r.metricsWritten ?? '—') + '</td>'
+      + '<td class="num">' + (r.newIslandsDiscovered ?? '—') + '</td>'
+      + '<td class="num">' + dur + '</td><td>' + pill + '</td></tr>';
+  }).join('') : '<tr><td colspan="7" style="color:#676d80;">No cycles logged.</td></tr>';
+
+  $('foot').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+function card(k, v, sm) {
+  return '<div class="card"><div class="k">' + k + '</div><div class="v' + (sm ? ' sm' : '') + '">' + v + '</div></div>';
+}
+function setBanner(color, state, detail, alert) {
+  $('dot').className = 'dot ' + color;
+  $('state').textContent = state;
+  $('detail').textContent = detail;
+  $('banner').className = 'banner' + (alert ? ' alert' : '');
+}
+
+load();
+setInterval(load, 2000);
+</script>
+</body>
+</html>

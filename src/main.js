@@ -74,7 +74,21 @@ async function runCrawlCycle(reason) {
   crawlInFlight = true;
   const startedAt = Date.now();
   const startedAtIso = new Date(startedAt).toISOString();
-  currentCycle = { reason, startedAt: startedAtIso, catalogPagesFetched: 0, newIslandsDiscovered: 0, metricsPolled: 0, totalCandidates: null };
+  // lastProgressAt is the heartbeat: it advances on every progress event, so a
+  // wedged cycle is obvious (cycle "running" but heartbeat frozen) instead of
+  // looking identical to a healthy long one. That distinction is exactly what
+  // hid a 2h hang before.
+  currentCycle = {
+    reason,
+    startedAt: startedAtIso,
+    lastProgressAt: startedAtIso,
+    phase: 'starting',
+    catalogPagesFetched: 0,
+    newIslandsDiscovered: 0,
+    metricsPolled: 0,
+    metricsWritten: 0,
+    totalCandidates: null,
+  };
   console.log(`[crawler] starting cycle (${reason})`);
 
   try {
@@ -86,6 +100,8 @@ async function runCrawlCycle(reason) {
       metricsDelayMs: METRICS_DELAY_MS,
       onProgress: (evt) => {
         if (evt.error) console.error('[crawler]', JSON.stringify(evt));
+        currentCycle.lastProgressAt = new Date().toISOString();
+        if (evt.phase) currentCycle.phase = evt.phase;
         if (evt.phase === 'catalog' && !evt.error) {
           currentCycle.catalogPagesFetched = evt.page;
           currentCycle.newIslandsDiscovered = evt.newSoFar;
@@ -93,6 +109,7 @@ async function runCrawlCycle(reason) {
         if (evt.phase === 'metrics' && !evt.error && evt.polledSoFar) {
           currentCycle.metricsPolled = evt.polledSoFar;
           currentCycle.totalCandidates = evt.totalCandidates;
+          if (typeof evt.writtenSoFar === 'number') currentCycle.metricsWritten = evt.writtenSoFar;
         }
       },
     });

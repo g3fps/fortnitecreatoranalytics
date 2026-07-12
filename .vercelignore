@@ -11,6 +11,11 @@ data/
 scripts/
 db/
 
+# The private crawler console is operator-only (localhost guard in server.js).
+# Keeping it out of the deploy means it can't leak from production even if a
+# route guard were ever misconfigured.
+public/crawler.html
+
 # Dev-only
 node_modules/
 .env*

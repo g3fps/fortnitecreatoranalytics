@@ -228,6 +228,7 @@ async function crawlOnce(store, opts = {}) {
       title: island.title,
       found: metrics !== null,
       polledSoFar: result.metricsPolled,
+      writtenSoFar: result.metricsWritten,
       totalCandidates: candidates.length,
     });
 
