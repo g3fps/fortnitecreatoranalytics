@@ -90,39 +90,46 @@ function createServer(store, options = {}) {
     res.json({ ok: true, uptimeSeconds: Math.round(process.uptime()) });
   });
 
-  // ---- private crawler console (localhost only) ----
+  // ---- private crawler console (operator machine only) ----
   // Crawler internals (live poll progress, error samples, coverage) are for the
-  // operator, not the public. These routes only answer requests that came from
-  // the loopback interface, so they are unreachable from the deployed site even
-  // though the same Express app runs there.
-  function localOnly(req, res, next) {
-    const ip = req.socket?.remoteAddress || '';
-    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-    if (!isLoopback) return res.status(404).send('Not found');
-    next();
+  // operator, not the public.
+  //
+  // These routes are NOT REGISTERED AT ALL when running on Vercel. An IP-based
+  // "is this loopback?" check is useless there: behind Vercel's proxy the
+  // socket's remote address IS an internal/loopback address, so such a check
+  // would happily approve every public request - it fails OPEN, which is how a
+  // previous version of this leaked live crawler JSON on uefnstats.com.
+  //
+  // Registration is therefore gated on the process being the local crawler
+  // (Vercel sets process.env.VERCEL on every deployment), and the handlers
+  // additionally require a loopback peer as defence in depth.
+  const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+  if (!IS_SERVERLESS) {
+    const localOnly = (req, res, next) => {
+      const ip = req.socket?.remoteAddress || '';
+      const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+      if (!isLoopback) return res.status(404).send('Not found');
+      next();
+    };
+
+    const sendConsole = (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'crawler.html'));
+
+    app.get(
+      '/api/crawler',
+      localOnly,
+      ah(async (req, res) => {
+        const [stats, cycles] = await Promise.all([store.getStats(), store.getCrawlLog(10)]);
+        res.set('Cache-Control', 'no-store');
+        res.json({ ...stats, crawlIntervalMs, crawlProgress: getCrawlProgress(), cycles, now: new Date().toISOString() });
+      })
+    );
+
+    app.get('/crawler', localOnly, sendConsole);
+    // crawler.html sits in public/, which express.static would otherwise serve
+    // to anyone; claim the path first so only the guarded handler answers.
+    app.get('/crawler.html', localOnly, sendConsole);
   }
-
-  app.get(
-    '/api/crawler',
-    localOnly,
-    ah(async (req, res) => {
-      const [stats, cycles] = await Promise.all([store.getStats(), store.getCrawlLog(10)]);
-      res.set('Cache-Control', 'no-store');
-      res.json({ ...stats, crawlIntervalMs, crawlProgress: getCrawlProgress(), cycles, now: new Date().toISOString() });
-    })
-  );
-
-  app.get('/crawler', localOnly, (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'crawler.html'));
-  });
-
-  // crawler.html lives in public/, which express.static would happily serve to
-  // ANYONE - that would expose the console on uefnstats.com and defeat the
-  // localhost guard above. Block the raw file path outright; /crawler (guarded)
-  // is the only way in.
-  app.get('/crawler.html', localOnly, (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'crawler.html'));
-  });
 
   app.get(
     '/api/stats',
