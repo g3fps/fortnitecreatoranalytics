@@ -11,9 +11,10 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const PORT = Number(process.env.PORT) || 3742;
 
 const CRAWL_INTERVAL_MS = Number(process.env.CRAWL_INTERVAL_MS) || 24 * 60 * 60 * 1000;
-// Decoupled from CRAWL_INTERVAL_MS on purpose - a real hang should be
-// flagged in hours, not after most of a day has gone by.
-const STALL_WARNING_MS = Number(process.env.STALL_WARNING_MS) || 3 * 60 * 60 * 1000;
+// Both stall thresholds measure time since the last progress event, NOT total
+// cycle length (a full sweep legitimately runs ~90 min). Warn first, then let
+// the monitor restart the process if nothing has moved for even longer.
+const STALL_WARNING_MS = Number(process.env.STALL_WARNING_MS) || 5 * 60 * 1000;
 const CATALOG_PAGES_PER_CYCLE = Number(process.env.CATALOG_PAGES_PER_CYCLE) || 5;
 const MAX_METRICS_PER_CYCLE = Number(process.env.MAX_METRICS_PER_CYCLE) || 250000;
 const METRICS_DELAY_MS = Number(process.env.METRICS_DELAY_MS) || 80;
@@ -175,25 +176,33 @@ async function loop() {
 
 // A wedged crawler is worse than a dead one: it looks alive (process up, port
 // held, "cycle running") while collecting nothing, so nobody notices for hours.
-// This monitor warns at STALL_WARNING_MS, then - if a cycle blows past a hard
-// deadline no legitimate cycle should ever reach - exits so the keep-alive
-// wrapper restarts it clean. crawlOnce persists incrementally, so a restart
-// loses at most the in-flight batch, not the cycle's work.
-const STALL_HARD_LIMIT_MS = Number(process.env.STALL_HARD_LIMIT_MS) || 90 * 60 * 1000;
+//
+// The signal for "wedged" is a FROZEN HEARTBEAT, not a long cycle. A full sweep
+// of the catalog legitimately takes ~90+ min at the polite poll rate, so keying
+// recovery off total cycle duration kills healthy cycles moments before they
+// finish - which restarts them forever and means the crawler never sleeps.
+// (That is exactly what an earlier 90-min duration cap did here.) If progress
+// events are still arriving, the cycle is working, however long it takes.
+const STALL_NO_PROGRESS_MS = Number(process.env.STALL_NO_PROGRESS_MS) || 10 * 60 * 1000;
 
 let stallMonitor = null;
 function startStallMonitor() {
   stallMonitor = setInterval(() => {
     if (crawlInFlight && currentCycle) {
       const runningForMs = Date.now() - new Date(currentCycle.startedAt).getTime();
-      if (runningForMs > STALL_HARD_LIMIT_MS) {
+      const sinceProgressMs = Date.now() - new Date(currentCycle.lastProgressAt || currentCycle.startedAt).getTime();
+      if (sinceProgressMs > STALL_NO_PROGRESS_MS) {
         console.error(
-          `[main] cycle wedged for ${(runningForMs / 60000).toFixed(1)} min (hard limit ${(STALL_HARD_LIMIT_MS / 60000).toFixed(0)} min) - exiting so the supervisor restarts a clean crawler.`
+          `[main] cycle wedged: no progress for ${(sinceProgressMs / 60000).toFixed(1)} min (limit ${(STALL_NO_PROGRESS_MS / 60000).toFixed(0)} min) - exiting so the supervisor restarts a clean crawler.`
         );
         process.exit(1);
       }
-      if (runningForMs > STALL_WARNING_MS) {
-        console.error(`[main] current cycle has been running for ${(runningForMs / 60000).toFixed(1)} min - possible stall`);
+      // Warn only when the heartbeat is going quiet - a long cycle that is
+      // still polling is healthy and shouldn't fill the log with false alarms.
+      if (sinceProgressMs > STALL_WARNING_MS) {
+        console.error(
+          `[main] no crawl progress for ${(sinceProgressMs / 60000).toFixed(1)} min (cycle running ${(runningForMs / 60000).toFixed(1)} min) - possible stall`
+        );
       }
     }
   }, 60 * 1000);
