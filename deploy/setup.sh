@@ -20,12 +20,26 @@ NODE_MAJOR=22
 echo "==> UEFN crawler setup starting"
 
 # --- Node.js (NodeSource) ---
-if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt "$NODE_MAJOR" ]; then
-  echo "==> installing Node.js ${NODE_MAJOR}.x"
+# Note: if an older Node from a different repo is already installed, apt may
+# report nodejs "already newest" and skip the upgrade. Remove it first, then let
+# the NodeSource setup script re-point the apt repo to the target major and
+# reinstall, so an existing Node 20 is genuinely replaced by 22.
+CURRENT_NODE_MAJOR="$(command -v node >/dev/null 2>&1 && node -p 'process.versions.node.split(".")[0]' || echo 0)"
+if [ "$CURRENT_NODE_MAJOR" -lt "$NODE_MAJOR" ]; then
+  echo "==> installing Node.js ${NODE_MAJOR}.x (found major: ${CURRENT_NODE_MAJOR})"
+  apt-get remove -y nodejs || true
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
   apt-get install -y nodejs
 fi
 echo "    node $(node -v)"
+# Fail loudly if we still don't have the required major - the crawler cannot run
+# on an older Node (supabase-js needs the native WebSocket).
+INSTALLED_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$INSTALLED_MAJOR" -lt "$NODE_MAJOR" ]; then
+  echo "ERROR: Node ${NODE_MAJOR}+ required but found major ${INSTALLED_MAJOR}. Run:" >&2
+  echo "  sudo apt-get remove -y nodejs && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | sudo bash - && sudo apt-get install -y nodejs" >&2
+  exit 1
+fi
 
 # --- git ---
 command -v git >/dev/null 2>&1 || apt-get install -y git
