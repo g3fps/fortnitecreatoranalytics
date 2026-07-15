@@ -7,3 +7,10 @@ data/*.tmp-*
 
 .vercel
 .env*
+
+# SSH keys must never be committed
+uefnstatrs
+uefnstatrs.pub
+*.pem
+id_ed25519*
+id_rsa*
