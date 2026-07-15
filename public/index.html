@@ -546,3 +546,11 @@
 <script src="/config.js"></script>
 <script src="/vendor/supabase.js"></script>
 <script src="/app.js"></script>
+
+<!-- Vercel Web Analytics (static-site injection). Vercel serves the script at
+     this path automatically once Analytics is enabled in the project dashboard;
+     the queue shim buffers events until it loads. Privacy-friendly, no cookies. -->
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
