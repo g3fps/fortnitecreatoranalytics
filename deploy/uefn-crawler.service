@@ -4,6 +4,9 @@ Documentation=https://uefnstats.com
 # Wait for the network before starting; the crawler needs Supabase + Epic's API.
 After=network-online.target
 Wants=network-online.target
+# Crash-loop backoff belongs in [Unit]: at most 5 starts in 60s, else pause.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -19,11 +22,6 @@ EnvironmentFile=/opt/uefn-crawler/.env
 # second copy, so the crawler is structurally single-instance.
 Restart=always
 RestartSec=5
-# If it somehow crash-loops hard, back off instead of hammering: at most 5
-# starts in 60s, else pause. (StartLimitIntervalSec lives in [Unit] on older
-# systemd; both placements are tolerated on current versions.)
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 # --- hardening ---
 # Run as an unprivileged service user, not root.

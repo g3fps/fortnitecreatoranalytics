@@ -12,12 +12,15 @@ set -euo pipefail
 APP_DIR=/opt/uefn-crawler
 SERVICE_USER=uefn
 REPO="${REPO:-https://github.com/g3fps/fortnitecreatoranalytics.git}"
-NODE_MAJOR=20
+# Node 22+ is required: current @supabase/supabase-js uses the native global
+# WebSocket, which older Node versions don't provide (the crawler fails to start
+# on Node 20 with "native WebSocket not found").
+NODE_MAJOR=22
 
 echo "==> UEFN crawler setup starting"
 
 # --- Node.js (NodeSource) ---
-if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 18 ]; then
+if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt "$NODE_MAJOR" ]; then
   echo "==> installing Node.js ${NODE_MAJOR}.x"
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
   apt-get install -y nodejs
