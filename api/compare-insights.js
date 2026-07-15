@@ -14,6 +14,7 @@
 require('../src/loadEnv');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
+const { computeGenreBenchmarks, benchmarkBlock, islandMetricsLine } = require('./_aiContext');
 
 const MODEL = 'claude-opus-4-8';
 
@@ -43,17 +44,10 @@ async function isProUser(svc, userId) {
   return Boolean(data?.is_pro);
 }
 
-// One factual line per island so the model compares numbers, not prose.
+// One factual line per island (all metrics) so the model compares numbers, not
+// prose. Delegates to the shared formatter used by the insights endpoint.
 function islandLine(row, { self = false } = {}) {
-  const pct = (v) => (v != null ? (v * 100).toFixed(0) + '%' : 'n/a');
-  const tag = self ? ' <- THIS IS THE CREATOR\'S ISLAND' : '';
-  return (
-    `- ${row.title || '(untitled)'} (${row.code})${tag}\n` +
-    `    peakCCU ${row.peak_ccu ?? 'n/a'}, unique ${row.unique_players ?? 'n/a'}, ` +
-    `plays ${row.plays ?? 'n/a'}, favorites ${row.favorites ?? 'n/a'}, ` +
-    `avg min/player ${row.average_minutes_per_player ?? 'n/a'}, ` +
-    `D1 ${pct(row.retention_d1)}, D7 ${pct(row.retention_d7)}`
-  );
+  return '- ' + islandMetricsLine(row, { self });
 }
 
 module.exports = async (req, res) => {
@@ -150,29 +144,46 @@ module.exports = async (req, res) => {
     return json(res, 422, { error: `Not enough other "${genre}" islands with data to compare against yet.` });
   }
 
+  // Genre benchmarks give the model the whole-market baseline (percentiles vs
+  // active peers), so the head-to-head isn't just "vs these 5" but "vs these 5
+  // AND where all of you sit in the genre."
+  const bench = await computeGenreBenchmarks(svc, genre, island);
+
   // --- Build the data block ---
   const dataBlock = [
     `Genre: ${genre}`,
     '',
-    'The creator\'s island:',
+    benchmarkBlock(bench),
+    '',
+    'The creator\'s island (all metrics):',
     islandLine(island, { self: true }),
     '',
-    `Top ${competitors.length} other "${genre}" islands by peak concurrent players:`,
+    `Top ${competitors.length} other active "${genre}" islands by peak concurrent players:`,
     ...competitors.map((r) => islandLine(r)),
   ].join('\n');
 
   const client = new Anthropic();
   const system =
-    'You are a competitive analyst for Fortnite Creative / UEFN island creators. ' +
-    'You are given one island (the creator\'s) and the top competing islands in the same genre. ' +
-    'Write a sharp head-to-head competitive read for the creator. Be concrete and grounded strictly in the numbers given - never invent figures or names. ' +
-    'Cover: where the creator\'s island stands in this set (ahead/behind and roughly by how much), its clearest strength vs these competitors, its clearest weakness or gap, and one or two specific, actionable moves to close the gap or extend the lead. ' +
-    'Reference competitors by name where it sharpens the point. Keep it under ~200 words, plain language, no preamble, no markdown headers.';
+    'You are a senior competitive analyst for Fortnite Creative / UEFN island creators - the kind a studio pays for. ' +
+    'You are given one island (the creator\'s), where it ranks against ALL active islands in its genre (percentiles + genre medians), and the top competing islands head-to-head. ' +
+    'Write a sharp competitive read for the creator.\n\n' +
+    'Rules:\n' +
+    '- Ground every claim in the specific numbers. Cite the figure and the genre percentile or a named competitor\'s number. Never invent figures or names.\n' +
+    '- Use BOTH lenses: the genre percentile (where they sit market-wide) and the head-to-head vs the named top competitors.\n' +
+    '- Find the sharpest strength and the biggest exploitable gap, judged by standing - a metric can look big in absolute terms but weak vs the top competitors, or vice versa.\n' +
+    '- Reference competitors by name where it sharpens the point.\n\n' +
+    'Format with these exact headers, each on its own line:\n' +
+    'VERDICT: <one sentence on where they stand in this set and genre>\n' +
+    'VS THE FIELD: <2-3 sentences comparing to the named competitors on the metrics that matter>\n' +
+    'STRENGTH: <the sharpest edge, with the number>\n' +
+    'GAP: <the biggest exploitable weakness, with the number>\n' +
+    'DO NEXT: <2-3 numbered, concrete moves to close the gap or extend the lead>\n' +
+    'Tight and skimmable, no preamble, no markdown symbols (#, *, -) - just the headers and plain text.';
 
   try {
     const stream = await client.messages.stream({
       model: MODEL,
-      max_tokens: 1200,
+      max_tokens: 1400,
       thinking: { type: 'adaptive' },
       system,
       messages: [{ role: 'user', content: `Here is the competitive data:\n\n${dataBlock}\n\nWrite the head-to-head competitive read.` }],

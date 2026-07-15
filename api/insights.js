@@ -17,6 +17,7 @@
 require('../src/loadEnv');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
+const { computeGenreBenchmarks, benchmarkBlock, historyBlock, islandMetricsLine } = require('./_aiContext');
 
 const MODEL = 'claude-opus-4-8';
 
@@ -49,35 +50,26 @@ async function isProUser(userId) {
   return Boolean(data?.is_pro);
 }
 
-// Build a compact, factual data summary for the model. Kept small and
-// structured so the model reasons over numbers, not prose.
-function buildDataBlock(island, history) {
-  const latest = island.latest || {};
-  const lines = [
-    `Island: ${island.title || '(untitled)'} (code ${island.code})`,
-    `Creator: ${island.creatorCode || 'unknown'}`,
-    island.tags && island.tags.length ? `Tags: ${island.tags.join(', ')}` : null,
+// Assemble the market-aware brief: identity, all current metrics, where the
+// island stands vs its active genre peers (benchmarks), and its trend. The
+// enrichment (benchmarks/history formatting) lives in _aiContext so the compare
+// endpoint shares it.
+function buildDataBlock(row, genre, bench, history) {
+  return [
+    `Island: ${row.title || '(untitled)'} (code ${row.code})`,
+    `Creator: ${row.creator_code || 'unknown'}`,
+    `Genre: ${genre || '(untagged)'}`,
+    row.tags && row.tags.length ? `All tags: ${row.tags.join(', ')}` : null,
     '',
-    'Latest reading:',
-    `  Peak concurrent players: ${latest.peakCCU ?? 'n/a'}`,
-    `  Unique players: ${latest.uniquePlayers ?? 'n/a'}`,
-    `  Minutes played: ${latest.minutesPlayed ?? 'n/a'}`,
-    `  Avg minutes/player: ${latest.averageMinutesPerPlayer ?? 'n/a'}`,
-    `  Plays: ${latest.plays ?? 'n/a'}`,
-    `  Favorites: ${latest.favorites ?? 'n/a'}`,
-    `  Day-1 retention: ${latest.retentionD1 != null ? (latest.retentionD1 * 100).toFixed(0) + '%' : 'n/a'}`,
-    `  Day-7 retention: ${latest.retentionD7 != null ? (latest.retentionD7 * 100).toFixed(0) + '%' : 'n/a'}`,
-  ].filter((l) => l !== null);
-
-  if (history && history.length > 1) {
-    lines.push('', `History (${history.length} readings, oldest first):`);
-    for (const h of history.slice(-14)) {
-      lines.push(`  ${(h.capturedAt || '').slice(0, 10)}: peakCCU ${h.peakCCU ?? 'n/a'}, unique ${h.uniquePlayers ?? 'n/a'}, D1 ${h.retentionD1 != null ? (h.retentionD1 * 100).toFixed(0) + '%' : 'n/a'}`);
-    }
-  } else {
-    lines.push('', 'History: only one reading so far (trends not yet available).');
-  }
-  return lines.join('\n');
+    'Current metrics:',
+    '  ' + islandMetricsLine(row).split('\n')[1].trim(),
+    '',
+    benchmarkBlock(bench),
+    '',
+    historyBlock(history),
+  ]
+    .filter((l) => l !== null)
+    .join('\n');
 }
 
 module.exports = async (req, res) => {
@@ -136,54 +128,59 @@ module.exports = async (req, res) => {
 
   // --- Fetch the island's data (service role: read-only use here) ---
   const { data: islandRow, error: iErr } = await svc.from('islands_with_latest').select('*').eq('code', code).maybeSingle();
-  if (iErr) return json(res, 500, { error: 'Failed to load island data.' });
-  if (!islandRow) return json(res, 404, { error: 'Island not found.' });
+  if (iErr) {
+    await svc.rpc('refund_insight', { p_user: user.id }).catch(() => {});
+    return json(res, 500, { error: 'Failed to load island data.' });
+  }
+  if (!islandRow) {
+    await svc.rpc('refund_insight', { p_user: user.id }).catch(() => {});
+    return json(res, 404, { error: 'Island not found.' });
+  }
 
-  const island = {
-    code: islandRow.code,
-    title: islandRow.title,
-    creatorCode: islandRow.creator_code,
-    tags: islandRow.tags || [],
-    latest: islandRow.captured_at
-      ? {
-          peakCCU: islandRow.peak_ccu,
-          uniquePlayers: islandRow.unique_players,
-          minutesPlayed: islandRow.minutes_played,
-          averageMinutesPerPlayer: islandRow.average_minutes_per_player,
-          plays: islandRow.plays,
-          favorites: islandRow.favorites,
-          retentionD1: islandRow.retention_d1,
-          retentionD7: islandRow.retention_d7,
-        }
-      : null,
-  };
+  const genre = Array.isArray(islandRow.tags) && islandRow.tags.length ? islandRow.tags[0] : null;
 
-  const { data: histRows } = await svc
-    .from('snapshots')
-    .select('captured_at,peak_ccu,unique_players,retention_d1')
-    .eq('code', code)
-    .order('captured_at', { ascending: true });
-  const history = (histRows || []).map((h) => ({
-    capturedAt: h.captured_at,
-    peakCCU: h.peak_ccu,
-    uniquePlayers: h.unique_players,
-    retentionD1: h.retention_d1,
-  }));
+  // Genre benchmarks (percentiles vs active peers) + full multi-metric history,
+  // fetched in parallel. Benchmarks are what make the read market-aware.
+  const [bench, histResult] = await Promise.all([
+    genre ? computeGenreBenchmarks(svc, genre, islandRow) : Promise.resolve(null),
+    svc
+      .from('snapshots')
+      .select('captured_at,peak_ccu,unique_players,plays,minutes_played,average_minutes_per_player,favorites,recommendations,retention_d1,retention_d7')
+      .eq('code', code)
+      .order('captured_at', { ascending: true }),
+  ]);
+  const history = histResult.data || [];
 
   // --- Ask Claude ---
-  const dataBlock = buildDataBlock(island, history);
+  const dataBlock = buildDataBlock(islandRow, genre, bench, history);
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
   const system =
-    'You are an analyst for Fortnite Creative / UEFN island creators. You get engagement stats for one island and write a short, sharp competitive read for the creator who owns it. Be concrete and grounded strictly in the numbers given - never invent figures. Cover: how it is performing, what the trend (if any) suggests, retention health, and one or two specific, actionable things the creator could focus on. Keep it under ~180 words, plain language, no preamble, no markdown headers.';
+    'You are a senior analyst for Fortnite Creative / UEFN island creators - the kind a studio pays for. ' +
+    'You are given one island\'s full engagement metrics, how it ranks against ACTIVE islands in its genre (percentiles + genre medians), and its history. ' +
+    'Write a sharp, market-aware competitive read for the creator who owns it.\n\n' +
+    'Rules:\n' +
+    '- Ground every claim in the specific numbers provided. Cite the actual figure and, where it matters, the genre median or percentile ("your 30% D1 is top-quartile; the genre median is 18%"). Never invent numbers.\n' +
+    '- Lead with a one-line verdict of where this island stands.\n' +
+    '- Use the genre benchmarks heavily - the creator wants to know how they stack up against live competition, not just their raw numbers. Percentiles are your sharpest tool.\n' +
+    '- Identify the single biggest strength and the single biggest gap, judged by percentile standing (a metric can be high in absolute terms but weak vs genre, or vice versa).\n' +
+    '- Give 2-3 specific, actionable moves tied to the weakest standings.\n' +
+    '- If history has 2+ readings, note the trend; if only one, do not speculate about trend.\n\n' +
+    'Format as short labeled sections with these exact headers, each on its own line:\n' +
+    'VERDICT: <one sentence>\n' +
+    'STANDING: <2-3 sentences on percentile position across the key metrics>\n' +
+    'STRENGTH: <the standout, with the number>\n' +
+    'GAP: <the biggest weakness vs genre, with the number>\n' +
+    'DO NEXT: <2-3 numbered, concrete moves>\n' +
+    'Keep the whole thing tight and skimmable, no preamble, no markdown symbols (#, *, -) - just the headers and plain text.';
 
   try {
     const stream = await client.messages.stream({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 1400,
       thinking: { type: 'adaptive' },
       system,
-      messages: [{ role: 'user', content: `Here is the data for one island:\n\n${dataBlock}\n\nWrite the competitive read.` }],
+      messages: [{ role: 'user', content: `Here is the data:\n\n${dataBlock}\n\nWrite the competitive read.` }],
     });
     const message = await stream.finalMessage();
     const text = message.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
