@@ -7,6 +7,9 @@
     { "source": "/api/stripe-webhook", "destination": "/api/stripe-webhook" },
     { "source": "/terms", "destination": "/terms.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/genre/:slug", "destination": "/api/genre" },
+    { "source": "/genres", "destination": "/api/genres" },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/(.*)", "destination": "/api/index" }
   ],
   "functions": {

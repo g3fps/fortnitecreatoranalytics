@@ -236,6 +236,21 @@ Environment variables:
 | `GET /api/islands/:code/history` | every snapshot this crawler has captured for that island |
 | `GET /api/lookup/:code` | on-demand fetch straight from Epic for a specific island, even one the crawler hasn't discovered yet - adds it to the tracked catalog immediately |
 
+**Public SEO pages (server-rendered).** These are rendered as real HTML by
+serverless functions (not the SPA) so search engines index them, and they're the
+top-of-funnel acquisition surface:
+
+| Page | What it is |
+|---|---|
+| `/genre/<slug>` (`api/genre.js`) | per-genre report: leaders, genre medians/distribution, biggest movers, and an AI "state of the genre" summary, with a Pro upsell teaser. `<slug>` is the tag slugified (`team deathmatch` → `team-deathmatch`). |
+| `/genres` (`api/genres.js`) | index of every active genre linking to each report — an internal-linking SEO hub |
+| `/sitemap.xml` (`api/sitemap.js`) | dynamic sitemap listing the static pages + every genre page |
+
+Genre pages cache at the edge (`s-maxage=3600`), so the AI summary costs ~1
+Anthropic call per genre per hour regardless of traffic. Benchmarks and genre
+medians are computed against *active* islands only (peak CCU floor) so the
+percentiles are meaningful rather than dominated by dead/abandoned islands.
+
 Allowed `metric` values: `peakCCU`, `uniquePlayers`, `minutesPlayed`,
 `averageMinutesPerPlayer`, `plays`, `favorites`, `recommendations`,
 `retentionD1`, `retentionD7`.
