@@ -12,13 +12,19 @@
 <link rel="stylesheet" href="/style.css">
 
 <header class="topbar-nav">
+  <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="primary-nav">
+    <span class="nav-toggle-bar"></span>
+    <span class="nav-toggle-bar"></span>
+    <span class="nav-toggle-bar"></span>
+  </button>
+
   <div class="wordmark">
     <span class="mark"></span>
     <span class="name">UEFN Stats</span>
     <span class="tag">· competitive intel for Creative islands</span>
   </div>
 
-  <nav class="nav">
+  <nav class="nav" id="primary-nav">
     <button class="nav-item active" data-view="overview">Overview</button>
     <button class="nav-item" data-view="leaderboard">Leaderboard</button>
     <button class="nav-item" data-view="movers">Movers</button>

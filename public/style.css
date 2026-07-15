@@ -167,6 +167,33 @@ nav.nav::-webkit-scrollbar { display: none; }
   font-weight: 600;
 }
 
+/* Hamburger toggle: hidden on desktop, shown on mobile via the media query
+   below. Three bars that morph into an X when the menu is open. */
+.nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.nav-toggle-bar {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--paper);
+  border-radius: 2px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.nav-toggle[aria-expanded="true"] .nav-toggle-bar:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.nav-toggle[aria-expanded="true"] .nav-toggle-bar:nth-child(2) { opacity: 0; }
+.nav-toggle[aria-expanded="true"] .nav-toggle-bar:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
 .nav-count {
   font-family: 'SF Mono', Consolas, monospace;
   font-size: 10px;
@@ -1108,3 +1135,112 @@ td.value { width: 180px; }
   padding: 3px 8px;
 }
 .watchlist-remove:hover { color: var(--bad); border-color: var(--bad); }
+
+/* =========================================================================
+   MOBILE  (<= 720px)
+   The layout is desktop-first (min-width queries build upward). This block is
+   the deliberate small-screen design: hamburger nav, no horizontal page
+   scroll, and reflowed spacing.
+   ========================================================================= */
+@media (max-width: 720px) {
+  /* Nothing should ever push the page wider than the viewport. Wide content
+     (tables, tag rows) scrolls inside its own container, set up below. */
+  html, body { max-width: 100%; overflow-x: hidden; }
+
+  main { padding: 18px 16px 48px; max-width: 100%; }
+
+  /* Belt-and-braces: no view/panel/hero may exceed the viewport, and long
+     unbroken strings (island codes, URLs) wrap instead of pushing width. */
+  .view, .panel, .hero, .hero-sub, .topbar { max-width: 100%; }
+  .hero-sub, .panel, td, .creator-code, .mono { overflow-wrap: anywhere; }
+
+  /* --- top bar --- */
+  .topbar-nav { gap: 12px; padding: 0 14px; height: 52px; }
+  .nav-toggle { display: flex; }
+  .wordmark { flex: 1; min-width: 0; }
+  .wordmark .name { font-size: 14px; }
+
+  /* The nav collapses to a dropdown panel toggled by the hamburger. It's taken
+     out of the flex row and absolutely positioned under the bar. */
+  nav.nav {
+    position: absolute;
+    top: 52px;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    background: var(--topbar);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.22s ease;
+  }
+  nav.nav.open { max-height: 80vh; overflow-y: auto; }
+
+  .nav-item {
+    height: auto;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    font-size: 14px;
+    width: 100%;
+  }
+  .nav-item.active {
+    border-bottom-color: var(--line);
+    border-left-color: var(--accent);
+    background: var(--panel);
+  }
+
+  /* Trim the top-right cluster so it fits: hide the crawl-status chip on very
+     small screens (it's non-essential), keep the auth button + pro badge. */
+  .topbar-right { gap: 8px; }
+  .crawl-status { display: none; }
+  .btn-ghost { padding: 6px 12px; font-size: 12px; }
+
+  /* --- content reflow --- */
+  /* Any horizontal strip of controls (metric tabs, filters, tag rows) scrolls
+     inside itself rather than stretching the page. */
+  .tab-row, .filter-row, .tag-row, .billing-toggle, #pro-billing-toggle {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-row::-webkit-scrollbar, .filter-row::-webkit-scrollbar { display: none; }
+
+  /* Tables: never widen the page; scroll within their wrapper. The .table-wrap
+     is the scroll container; if a table isn't wrapped, it still won't overflow
+     the body because of overflow-x:hidden above, but wrapping is preferred. */
+  .table-wrap, .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { min-width: 520px; }
+
+  /* Topbars within views (page title + right-side action) stack. */
+  .topbar { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+  /* Hero: less padding (40px 34px is huge on a phone), smaller type, full-width
+     CTAs. The oversized horizontal padding was the main cause of content
+     appearing to run off the right edge. */
+  .hero { padding: 26px 18px; }
+  .hero h1, h1 { font-size: 26px; line-height: 1.15; }
+  .hero-cta { flex-direction: column; align-items: stretch; }
+  .hero-cta .btn-primary, .hero-cta .btn-ghost { width: 100%; text-align: center; }
+
+  /* Panels also carry generous desktop padding; trim it so their contents have
+     room on narrow screens. */
+  .panel { padding: 16px; }
+
+  /* Two-column stat/card grids collapse to one. */
+  .account-grid, .kpi-row, .stat-grid { grid-template-columns: 1fr; }
+
+  /* The hero stat strip uses a big 30px gap that forces 4 columns wider than a
+     phone before they wrap; shrink it so they wrap cleanly to 2 rows. */
+  .hero-stats { gap: 16px 22px; }
+  .hero-stat-num { font-size: 22px; }
+
+  /* Drawer takes the full width on a phone. */
+  .drawer { width: 100%; max-width: 100%; }
+
+  /* Modals fit the viewport with margin. */
+  .modal, .auth-modal, .upgrade-modal { width: calc(100% - 28px); max-width: 100%; }
+}

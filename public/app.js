@@ -176,8 +176,33 @@ function routeFromPath({ updateUrl = false } = {}) {
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
-  btn.addEventListener('click', () => switchView(btn.dataset.view));
+  btn.addEventListener('click', () => {
+    switchView(btn.dataset.view);
+    closeMobileNav(); // picking a destination closes the mobile dropdown
+  });
 });
+
+// Mobile hamburger: toggles the nav dropdown open/closed. On desktop the nav is
+// always visible and the toggle is hidden via CSS, so this is a no-op there.
+const navToggle = $('nav-toggle');
+const primaryNav = $('primary-nav');
+function closeMobileNav() {
+  if (!primaryNav) return;
+  primaryNav.classList.remove('open');
+  if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+}
+if (navToggle && primaryNav) {
+  navToggle.addEventListener('click', () => {
+    const open = primaryNav.classList.toggle('open');
+    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  // Tapping outside the open menu closes it.
+  document.addEventListener('click', (e) => {
+    if (!primaryNav.classList.contains('open')) return;
+    if (primaryNav.contains(e.target) || navToggle.contains(e.target)) return;
+    closeMobileNav();
+  });
+}
 
 window.addEventListener('popstate', () => routeFromPath({ updateUrl: false }));
 
@@ -1869,6 +1894,10 @@ function applyPlanUi() {
   if ($('view-pro') && $('view-pro').classList.contains('active')) loadProPage();
   // Same for the account page (plan label + manage/upgrade buttons).
   if (currentUser && $('view-account') && $('view-account').classList.contains('active')) loadAccountPage();
+  // And the compare page: landing on /compare renders the gate before the plan
+  // has loaded from Supabase, so a Pro user would be stuck on the upgrade screen
+  // until this re-render swaps in the actual tool once is_pro resolves.
+  if ($('view-compare') && $('view-compare').classList.contains('active')) loadCompare();
 }
 
 async function trackIsland(code) {
