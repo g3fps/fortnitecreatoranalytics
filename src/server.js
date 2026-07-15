@@ -326,6 +326,29 @@ function createServer(store, options = {}) {
     app.get(route, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', file)));
   }
 
+  // The server-rendered genre pages are Vercel serverless functions in prod
+  // (routed by vercel.json). Mount the same handlers here so `npm start` /
+  // `npm run serve` preview them identically on localhost - they take the plain
+  // (req, res) signature, so Express can call them directly. Wrapped so a
+  // missing Supabase env (local-file mode) degrades to the SPA instead of 500.
+  function mountServerlessPage(route, modulePath) {
+    let handler;
+    try {
+      handler = require(modulePath);
+    } catch (err) {
+      return; // module not present; skip
+    }
+    app.get(route, (req, res, next) => {
+      Promise.resolve(handler(req, res)).catch((err) => {
+        console.error(`[server] ${route} render failed:`, err.message);
+        next();
+      });
+    });
+  }
+  mountServerlessPage('/genre/:slug', '../api/genre');
+  mountServerlessPage('/genres', '../api/genres');
+  mountServerlessPage('/sitemap.xml', '../api/sitemap');
+
   // package.json pins Express 4.x (path-to-regexp 0.1.x), where a bare '*'
   // is the catch-all wildcard. Express 5's path-to-regexp requires a named
   // wildcard like '/*splat' instead - don't switch to that syntax unless the

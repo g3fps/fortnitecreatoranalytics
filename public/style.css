@@ -166,6 +166,10 @@ nav.nav::-webkit-scrollbar { display: none; }
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
+/* Anchor-style nav items (real links to server-rendered pages, e.g. Genres)
+   inherit the button look but must shed the default anchor underline/color. */
+a.nav-item { text-decoration: none; }
+a.nav-item:hover { text-decoration: none; }
 
 /* Hamburger toggle: hidden on desktop, shown on mobile via the media query
    below. Three bars that morph into an X when the menu is open. */
@@ -648,7 +652,11 @@ td.value { width: 180px; }
   background: var(--panel-raised);
   border: 1px solid var(--line);
   color: var(--paper-dim);
+  text-decoration: none;
+  transition: border-color 0.12s ease, color 0.12s ease;
 }
+/* Chips are now links to the genre page - give them an interactive affordance. */
+a.tag-chip:hover { border-color: var(--accent); color: var(--paper); text-decoration: none; }
 
 .metric-grid {
   display: grid;

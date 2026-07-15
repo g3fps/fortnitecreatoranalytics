@@ -93,4 +93,33 @@ async function computeMovers(svc, codes) {
   return out;
 }
 
-module.exports = { buildGenreReport, tagToSlug, slugToTag, quantile, fmt, ACTIVE_CCU_FLOOR };
+// Shared site header for the standalone (server-rendered) genre pages, so they
+// carry the same nav as the main app and feel like one site. Links are real
+// hrefs into the SPA's path-based routes; `current` highlights the active item
+// ('genres' on these pages). The full CSS for .site-hdr lives in each page.
+function siteHeader(current) {
+  const items = [
+    ['/', 'Overview', 'overview'],
+    ['/leaderboard', 'Leaderboard', 'leaderboard'],
+    ['/movers', 'Movers', 'movers'],
+    ['/creators', 'Creators', 'creators'],
+    ['/compare', 'Compare', 'compare'],
+    ['/browse', 'Browse', 'browse'],
+    ['/genres', 'Genres', 'genres'],
+    ['/explore', 'Explore', 'explore'],
+    ['/data', 'About Data', 'data'],
+    ['/pro', 'Pro', 'pro'],
+  ];
+  const links = items
+    .map(([href, label, key]) => `<a href="${href}"${key === current ? ' class="on"' : ''}>${label}</a>`)
+    .join('');
+  return (
+    `<header class="site-hdr">` +
+    `<a class="site-wordmark" href="/"><span class="mark"></span>UEFN Stats` +
+    `<span class="site-tag">· competitive intel for Creative islands</span></a>` +
+    `<nav class="site-nav">${links}</nav>` +
+    `</header>`
+  );
+}
+
+module.exports = { buildGenreReport, tagToSlug, slugToTag, quantile, fmt, ACTIVE_CCU_FLOOR, siteHeader };

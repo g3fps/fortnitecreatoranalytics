@@ -69,6 +69,12 @@ function fmtMetricValue(value, metricKey) {
   return fmtNumber(value);
 }
 
+// Slugify a genre tag for its /genre/<slug> URL. Must match tagToSlug() in
+// api/_genreReport.js so the link resolves to the right page.
+function genreSlug(tag) {
+  return String(tag).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 function fmtRelativeTime(isoString) {
   if (!isoString) return 'never';
   const then = new Date(isoString).getTime();
@@ -175,7 +181,10 @@ function routeFromPath({ updateUrl = false } = {}) {
   switchView(views.includes(name) ? name : 'overview', { updateUrl });
 }
 
-document.querySelectorAll('.nav-item').forEach((btn) => {
+// SPA nav buttons switch views client-side. Plain-anchor nav items (.nav-link,
+// e.g. Genres -> the server-rendered /genres page) are real links and must NOT
+// be intercepted - let the browser navigate.
+document.querySelectorAll('.nav-item[data-view]').forEach((btn) => {
   btn.addEventListener('click', () => {
     switchView(btn.dataset.view);
     closeMobileNav(); // picking a destination closes the mobile dropdown
@@ -1639,9 +1648,12 @@ async function showDetailImpl(code) {
     const tagRow = $('drawer-tags');
     clearChildren(tagRow);
     for (const tag of island.tags || []) {
-      const chip = document.createElement('span');
+      // Tags link to their genre report page (server-rendered /genre/<slug>).
+      // Both discovery for humans and internal SEO linking for crawlers.
+      const chip = document.createElement('a');
       chip.className = 'tag-chip';
       chip.textContent = tag;
+      chip.href = '/genre/' + genreSlug(tag);
       tagRow.appendChild(chip);
     }
 
