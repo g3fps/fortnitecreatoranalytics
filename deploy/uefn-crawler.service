@@ -1,0 +1,46 @@
+[Unit]
+Description=UEFN Stats crawler
+Documentation=https://uefnstats.com
+# Wait for the network before starting; the crawler needs Supabase + Epic's API.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs the crawler with NO web server - Vercel serves the dashboard; this box
+# only writes to Supabase. --no-server means no port to bind, nothing to fight.
+WorkingDirectory=/opt/uefn-crawler
+ExecStart=/usr/bin/node src/main.js --no-server
+EnvironmentFile=/opt/uefn-crawler/.env
+
+# --- reliability ---
+# Always bring it back, with a short backoff, no matter how it exited. systemd
+# is the single supervisor: unlike the old Windows setup it cannot spawn a
+# second copy, so the crawler is structurally single-instance.
+Restart=always
+RestartSec=5
+# If it somehow crash-loops hard, back off instead of hammering: at most 5
+# starts in 60s, else pause. (StartLimitIntervalSec lives in [Unit] on older
+# systemd; both placements are tolerated on current versions.)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# --- hardening ---
+# Run as an unprivileged service user, not root.
+User=uefn
+Group=uefn
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# The app writes nothing to disk (all state is in Supabase); no writable paths
+# are granted, so a compromise can't tamper with the box.
+
+# --- logging ---
+# stdout/stderr go to the systemd journal: `journalctl -u uefn-crawler -f`.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=uefn-crawler
+
+[Install]
+WantedBy=multi-user.target

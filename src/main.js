@@ -178,8 +178,42 @@ function msUntilNextCycle() {
   return Math.max(CRAWL_INTERVAL_MS - elapsed, 0);
 }
 
+// If a previous process was killed mid-cycle (reboot, crash, kill), it left
+// last_crawl_started_at newer than last_crawl_finished_at, so every status
+// read reports "RUNNING a cycle now" forever - a lie, since that process is
+// gone. A fresh process definitionally has no cycle in flight yet, so heal the
+// marker on boot: stamp a finished time and record the interrupted cycle in the
+// log so it's visible, not silently swallowed.
+async function healInterruptedCycle() {
+  try {
+    const cs = crawlStore?.getCrawlState?.();
+    if (!cs) return;
+    const started = cs.lastCrawlStartedAt ? new Date(cs.lastCrawlStartedAt).getTime() : 0;
+    const finished = cs.lastCrawlFinishedAt ? new Date(cs.lastCrawlFinishedAt).getTime() : 0;
+    if (started > finished) {
+      const nowIso = new Date().toISOString();
+      console.warn('[crawler] previous cycle was interrupted (never finished) - healing status marker.');
+      // Not a FATAL: a crawl failure means the code broke. This just means the
+      // process was stopped (reboot/kill) while a cycle was open. Record it so
+      // it's visible, but don't flag it as a crawl error.
+      await crawlStore.recordCrawlCycle({
+        reason: 'interrupted',
+        startedAt: cs.lastCrawlStartedAt,
+        finishedAt: nowIso,
+        errorCount: 0,
+        fatal: false,
+        sampleErrors: ['process exited before the cycle completed (reboot/kill) - not a crawl error'],
+      });
+      await crawlStore.setCrawlState({ lastCrawlFinishedAt: nowIso });
+    }
+  } catch (err) {
+    console.error('[crawler] could not heal interrupted-cycle marker:', err.message);
+  }
+}
+
 async function loop() {
   let firstRun = true;
+  await healInterruptedCycle();
   while (!shuttingDown) {
     // On a fresh process, honour the persisted schedule instead of always
     // crawling on startup.
