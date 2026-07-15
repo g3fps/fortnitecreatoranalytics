@@ -1464,23 +1464,55 @@ function wireAccountPage() {
 
 // ---------------------------------------------------------------- AI insights (Pro)
 
-async function runInsights(code, btn) {
+// Per-island insight: signed-in users only; the endpoint applies the free (1/day)
+// vs Pro (5/day) cap.
+function runInsights(code, btn) {
+  return runAiRequest({
+    code,
+    btn,
+    endpoint: '/api/insights',
+    thinkingLabel: 'Thinking…',
+    loadingText: 'Generating insights from this island\'s data…',
+    notConfiguredText: 'AI insights are coming soon.',
+    genericError: 'Could not generate insights right now.',
+    unitLabel: 'insights',
+  });
+}
+
+// Competitor comparison: Pro-only (the endpoint 403s non-Pro). Positions this
+// island against the top islands in its genre.
+function runCompare(code, btn) {
+  return runAiRequest({
+    code,
+    btn,
+    endpoint: '/api/compare-insights',
+    thinkingLabel: 'Analyzing…',
+    loadingText: 'Comparing this island to the top competitors in its genre…',
+    notConfiguredText: 'AI competitor analysis is coming soon.',
+    genericError: 'Could not run the comparison right now.',
+    unitLabel: 'analyses',
+  });
+}
+
+// Shared driver for the drawer's AI buttons. Both endpoints return the same
+// shape ({ insight, remaining, cap } on success; { error, notConfigured,
+// limitReached, upgrade } on failure), so one handler covers both. A 403 with
+// upgrade:true is the Pro gate (used by the Pro-only compare endpoint).
+async function runAiRequest({ code, btn, endpoint, thinkingLabel, loadingText, notConfiguredText, genericError, unitLabel }) {
   const box = $('drawer-insight');
-  // Logged-out users must sign in first (free accounts still get 1/day). Pro
-  // status isn't checked here - the endpoint applies the free vs pro cap.
   if (!currentUser) { openAuthModal(); return; }
 
   btn.disabled = true;
   const originalText = btn.textContent;
-  btn.textContent = 'Thinking…';
+  btn.textContent = thinkingLabel;
   box.style.display = 'block';
   box.className = 'drawer-insight loading';
-  box.textContent = 'Generating insights from this island\'s data…';
+  box.textContent = loadingText;
 
   try {
     const { data: sess } = await sbClient.auth.getSession();
     const token = sess?.session?.access_token;
-    const res = await fetch('/api/insights', {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
       body: JSON.stringify({ code }),
@@ -1488,25 +1520,36 @@ async function runInsights(code, btn) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       box.className = 'drawer-insight error';
-      if (data.notConfigured) box.textContent = 'AI insights are coming soon.';
-      else if (data.limitReached) {
-        box.textContent = data.error;
-        if (data.upgrade) { const b = document.createElement('button'); b.className = 'link-btn'; b.textContent = 'Upgrade to Pro'; b.style.marginLeft = '6px'; b.addEventListener('click', openUpgradeModal); box.appendChild(document.createElement('br')); box.appendChild(b); }
-      } else box.textContent = data.error || 'Could not generate insights right now.';
+      if (data.notConfigured) {
+        box.textContent = notConfiguredText;
+      } else if (data.limitReached || data.upgrade) {
+        box.textContent = data.error || 'This is a Pro feature.';
+        if (data.upgrade) {
+          const b = document.createElement('button');
+          b.className = 'link-btn';
+          b.textContent = 'Upgrade to Pro';
+          b.style.marginLeft = '6px';
+          b.addEventListener('click', openUpgradeModal);
+          box.appendChild(document.createElement('br'));
+          box.appendChild(b);
+        }
+      } else {
+        box.textContent = data.error || genericError;
+      }
       return;
     }
     box.className = 'drawer-insight';
-    box.textContent = data.insight || 'No insight returned.';
+    box.textContent = data.insight || 'No result returned.';
     if (typeof data.remaining === 'number') {
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:8px;font-size:10.5px;color:var(--muted);';
-      note.textContent = `${data.remaining} of ${data.cap} insights left today`;
+      note.textContent = `${data.remaining} of ${data.cap} ${unitLabel} left today`;
       box.appendChild(note);
     }
   } catch (err) {
-    console.error('runInsights failed', err);
+    console.error('runAiRequest failed', err);
     box.className = 'drawer-insight error';
-    box.textContent = 'Could not reach the insights service.';
+    box.textContent = 'Could not reach the AI service.';
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
@@ -1662,6 +1705,14 @@ async function showDetailImpl(code) {
       aiBtn.innerHTML = '<span class="ai-spark">✨</span> AI insights';
       aiBtn.addEventListener('click', () => runInsights(island.code, aiBtn));
       actions.appendChild(aiBtn);
+
+      // Competitor comparison. Pro-only (the endpoint 403s non-Pro with an
+      // upgrade prompt). Marked with a Pro pill so the gate is obvious up front.
+      const cmpAiBtn = document.createElement('button');
+      cmpAiBtn.className = 'drawer-ai-btn secondary';
+      cmpAiBtn.innerHTML = '<span class="ai-spark">⚔️</span> Compare vs genre <span class="pro-pill">Pro</span>';
+      cmpAiBtn.addEventListener('click', () => runCompare(island.code, cmpAiBtn));
+      actions.appendChild(cmpAiBtn);
     }
     // Clear any insight text from a previously-opened island.
     clearChildren($('drawer-insight'));

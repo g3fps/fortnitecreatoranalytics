@@ -913,6 +913,29 @@ td.value { width: 180px; }
 .drawer-ai-btn:disabled { opacity: 0.7; cursor: default; }
 .ai-spark { filter: drop-shadow(0 0 4px rgba(255,255,255,0.6)); }
 
+/* Secondary AI action (e.g. competitor compare): same family, quieter than the
+   filled primary so "AI insights" stays the hero button. Outlined gradient. */
+.drawer-ai-btn.secondary {
+  background: rgba(124, 92, 255, 0.10);
+  border: 1px solid rgba(124, 92, 255, 0.55);
+  color: var(--paper);
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.drawer-ai-btn.secondary:hover { background: rgba(124, 92, 255, 0.18); filter: none; box-shadow: none; }
+.pro-pill {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #7c5cff, #f5a623);
+  color: #fff;
+}
+
 /* ---------- Pro page ---------- */
 
 .nav-pro {
